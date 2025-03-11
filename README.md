@@ -19,6 +19,9 @@ The default Humble Library plug-in only reports DRM-free games, not the keys for
 * `Notify about claimed keys that doesn't exist in the Steam Library` added in v0.3.5. When checked, during the library scan, will try and cross reference the redeemed key with the Steam Library Plugin. If there is no match it will create a notification.
 ## Details
 ### Tags
+* `Key: Claimed` - 
+* `Key: Unclaimed` - 
+* `Key: Unclaimable` - 
 * `Key: Redeemed` - this tag is attached to entries that have been redeemed. Corresponds to Humble API `tpkd_dict.all_tpks[n].redeemed_key_value`.
 * `Key: Unredeemed` - this tag is attached to entries that have not been redeemed. Corresponds to Humble API `tpkd_dict.all_tpks[n].redeemed_key_value`.
 * `Key: Unredeemable` - this tag is attached to entries that can no longer be redeemed. Corresponds to Humble API `tkkd_dict.all_tpks[n].is_expired`.

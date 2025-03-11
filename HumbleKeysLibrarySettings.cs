@@ -1,14 +1,15 @@
-﻿using Playnite.SDK;
+﻿using System;
+using Playnite.SDK;
 using HumbleKeys.Extensions;
-using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using HumbleKeys.Services;
 using Playnite.SDK.Data;
+using CloneObject = HumbleKeys.Extensions.CloneObject;
 
 namespace HumbleKeys
 {
-    public class HumbleKeysLibrarySettings : ObservableObject, ISettings
+    public class HumbleKeysLibrarySettings : ObservableObject, IHumbleKeysAccountClientSettings, ISettings
     {
         private readonly HumbleKeysLibrary plugin;
         private static ILogger logger = LogManager.GetLogger();
@@ -18,6 +19,7 @@ namespace HumbleKeys
         public bool IgnoreRedeemedKeys { get; set; } = false;
         public bool ImportChoiceKeys { get; set; } = false;
         public bool CacheEnabled { get; set; } = false;
+        public string CachePath { get; set; }
         public string CurrentTagMethodology { get; set; } = "none";
 
         public string CurrentUnredeemableMethodology { get; set; } = "tag";
@@ -93,7 +95,7 @@ namespace HumbleKeys
 
         private void LoadValues(HumbleKeysLibrarySettings source)
         {
-            source.CopyProperties(this, false, null, true);
+            CloneObject.CopyProperties(source, this, false, null, true);
         }
 
         public bool VerifySettings(out List<string> errors)
