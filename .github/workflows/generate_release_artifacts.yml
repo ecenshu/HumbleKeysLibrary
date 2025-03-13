@@ -32,6 +32,8 @@ jobs:
       artifact-version: ${{ steps.version_artifact_setenv.outputs.version }}
       tag-version: ${{ steps.version_tag_setenv.outputs.version }}
       generated-version: ${{ steps.version_tag_generated_setenv.outputs.version }}
+      current-version: ${{ steps.version_tag_generated.outputs.current-version }}
+      latest-version: ${{ steps.latest-release-semver.outputs.full }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -42,23 +44,36 @@ jobs:
         with:
           scheme: semver
           increment: patch
-          
+
+      - id: latest-release
+        uses: pozetroninc/github-action-get-latest-release@master
+        with:
+          repository: ${{ github.repository }}
+          excludes: prerelease, draft
+      - name: Parse version from latest-release
+        id: latest-release-semver
+        uses: release-kit/semver@v2
+        with:
+          string: ${{steps.latest-release.outputs.release}}
+        
       - name: Parse version from Tag
         id: version_tag
         if: ${{ (github.ref_type == 'tag') }}
         uses: release-kit/semver@v2
 
       - name: Debug if condition for 'Set version from Tag'
+        if: ${{ (github.ref_type == 'tag') }}
         run: |
           echo "Tag name from steps.version_tag.outputs.major: ${{steps.version_tag.outputs.major}}"
           echo "Tag name from steps.version_tag.outputs.minor: ${{steps.version_tag.outputs.minor}}"
           echo "Tag name from steps.version_tag.outputs.patch: ${{steps.version_tag.outputs.patch}}"
-          echo "Tag name from steps.version_tag.outputs.patch: ${{steps.version_tag.outputs.full}}"
+          echo "Tag name from steps.version_tag.outputs.full: ${{steps.version_tag.outputs.full}}"
           echo "Tag name from steps.version_tag_generated.outputs.major-version: ${{steps.version_tag_generated.outputs.major-version}}"
           echo "Tag name from steps.version_tag_generated.outputs.minor-version: ${{steps.version_tag_generated.outputs.minor-version}}"
           echo "Tag name from steps.version_tag_generated.outputs.patch-version: ${{steps.version_tag_generated.outputs.patch-version}}"
           echo "Comparison evaluation: ${{ (steps.version_tag.outputs.major > steps.version_tag_generated.outputs.major-version) || (steps.version_tag.outputs.major == steps.version_tag_generated.outputs.major-version && steps.version_tag.outputs.minor > steps.version_tag_generated.outputs.minor-version) || (steps.version_tag.outputs.major == steps.version_tag_generated.outputs.major-version && steps.version_tag.outputs.minor == steps.version_tag_generated.outputs.minor-version) }}"
 
+      
       - name: Set version from Tag
         id: version_tag_setenv
         if: ${{ (steps.version_tag.outputs.major > steps.version_tag_generated.outputs.major-version) || (steps.version_tag.outputs.major == steps.version_tag_generated.outputs.major-version && steps.version_tag.outputs.minor > steps.version_tag_generated.outputs.minor-version) || (steps.version_tag.outputs.major == steps.version_tag_generated.outputs.major-version && steps.version_tag.outputs.minor == steps.version_tag_generated.outputs.minor-version) }}
@@ -72,7 +87,7 @@ jobs:
         run: echo "branch_version=${BRANCH:10}" >> $GITHUB_OUTPUT
         
       - name: Generate version from branch
-        if: ${{ steps.version_tag_setenv.outputs.version && (github.ref_type == 'branch') && startsWith(github.ref_name,'releases/v') }}
+        if: ${{ steps.version_branch.outputs.branch_version && (github.ref_type == 'branch') && startsWith(github.ref_name,'releases/v') }}
         id: version_branch_generate
         uses: HardNorth/github-version-generate@v1.4.0
         with:
@@ -80,10 +95,21 @@ jobs:
           version: ${{steps.version_branch.outputs.branch_version}}
           
       - name: Set env.ARTIFACT_VERSION calculated from releases branch
-        if: ${{ (!steps.version_tag_setenv.outputs.version) && ((steps.version_tag_generated.outputs.major-version != steps.version_branch_generate.outputs.CURRENT_VERSION_MAJOR) || (steps.version_tag_generated.outputs.minor-version != steps.version_branch_generate.outputs.CURRENT_VERSION_MINOR)) }}
+        if: ${{ (steps.version_branch_generate.outputs.CURRENT_VERSION) && ((steps.version_tag_generated.outputs.major-version >= steps.version_branch_generate.outputs.CURRENT_VERSION_MAJOR) && (steps.version_tag_generated.outputs.minor-version >= steps.version_branch_generate.outputs.CURRENT_VERSION_MINOR) && (steps.version_tag_generated.outputs.patch-version >= steps.version_branch_generate.outputs.CURRENT_VERSION_PATCH)) }}
         id: version_artifact_setenv
         run: echo "version=${{steps.version_branch_generate.outputs.CURRENT_VERSION}}" >> $GITHUB_OUTPUT
         
+      - name: Debug if condition for 'Set env.ARTIFACT_VERSION calculated from releases branch'
+        run: |
+          echo "Tag name from steps.version_branch_generate.outputs.CURRENT_VERSION: ${{steps.version_branch_generate.outputs.CURRENT_VERSION}}"
+          echo "Tag name from steps.version_tag_generated.outputs.major-version: ${{steps.version_tag_generated.outputs.major-version}}"
+          echo "Tag name from steps.version_branch_generate.outputs.CURRENT_VERSION_MAJOR: ${{steps.version_branch_generate.outputs.CURRENT_VERSION_MAJOR}}"
+          echo "Tag name from steps.version_tag_generated.outputs.minor-version: ${{steps.version_tag_generated.outputs.minor-version}}"
+          echo "Tag name from steps.version_branch_generate.outputs.CURRENT_VERSION_MINOR: ${{steps.version_branch_generate.outputs.CURRENT_VERSION_MINOR}}"
+          echo "Tag name from steps.version_tag_generated.outputs.patch-version: ${{steps.version_tag_generated.outputs.patch-version}}"
+          echo "Tag name from steps.version_branch_generate.outputs.CURRENT_VERSION_PATCH: ${{steps.version_branch_generate.outputs.CURRENT_VERSION_PATCH}}"
+          echo "Comparison evaluation: ${{ (steps.version_branch_generate.outputs.branch_version) && ((steps.version_tag_generated.outputs.major-version >= steps.version_branch_generate.outputs.CURRENT_VERSION_MAJOR) && (steps.version_tag_generated.outputs.minor-version >= steps.version_branch_generate.outputs.CURRENT_VERSION_MINOR) && (steps.version_tag_generated.outputs.patch-version >= steps.version_branch_generate.outputs.CURRENT_VERSION_PATCH)) }}"
+
       - name: Set env.TAG_VERSION
         if: ${{ (!steps.version_tag_setenv.outputs.version) && (!steps.version_artifact_setenv.outputs.version) && ((steps.version_tag_generated.outputs.major-version != steps.version_branch_generate.outputs.CURRENT_VERSION_MAJOR) || (steps.version_tag_generated.outputs.minor-version != steps.version_branch_generate.outputs.CURRENT_VERSION_MINOR)) }}
         id: version_tag_generated_setenv
@@ -194,6 +220,8 @@ jobs:
       artifact-version: ${{ needs.versioning.outputs.artifact-version }}
       tag-version: ${{ needs.versioning.outputs.tag-version }}
       generated-version: ${{ needs.versioning.outputs.generated-version }}
+      current-version: ${{ needs.versioning.outputs.current-version }}
+      prior-version: ${{ needs.versioning.outputs.latest-version }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Set version from tag
@@ -261,14 +289,13 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: |
-            IFS= read -rd '' changelog < <(cat changelog.md | sed -e 's/\r//g; s/\x22/\\\\"/g');
-            printf '%s' "$changelog";
-            yq -i '(.Packages[] | select(.Changelog != null) | del(.Changelog)) | parent(2) | .Packages = [{
-            "Version":"${{env.version}}",
+            export CHANGELOG=`awk 'BEGIN {print "["}/^[\r]*$/{flag=1;next} /^# ${{env.current-version}}/{flag=1;next} /^# ${{env.prior-version}}/{flag=0;exit} (firstline) {printf ","} flag {printf("\047%s\047",$0);firstline=1} END {print "]"}' changelog.md`
+            yq -i '.Packages = [{
+            "Version":"${{env.current-version}}",
             "RequiredApiVersion":"${{steps.playnite_api_version.outputs.result}}",
             "ReleaseDate": (with_dtf("2025-12-01"; "${{steps.date.outputs.date}}") | from_json),
-            "PackageUrl":"${{github.server_url}}/${{github.repository}}/releases/download/${{env.version}}/HumbleKeysLibrary_${{env.version}}.pext"
-            }] + .Packages | .Packages[0].Changelog |= "'"${changelog}"'"' ./Manifests/HumbleKeysLibrary_Installer.yaml ./HumbleKeysLibrary.csproj
+            "PackageUrl":"${{github.server_url}}/${{github.repository}}/releases/download/v${{env.version}}/HumbleKeysLibrary_${{env.version}}.pext"
+            }] + .Packages | .Packages[0].Changelog = env(CHANGELOG) | .Packages[0].Changelog style="single"' ./Manifests/HumbleKeysLibrary_Installer.yaml
 
       - name: Update Installer Manifest
         if: steps.manifest_version.outputs.result == env.version
