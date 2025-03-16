@@ -72,6 +72,7 @@ namespace HumbleKeys.Models
                 public int num_days_until_expired;
                 public Newtonsoft.Json.Linq.JToken redeemed_key_val;
                 public bool is_virtual = false;
+                public bool is_gift;
             }
 
             public List<Tpk> all_tpks;
@@ -90,5 +91,14 @@ namespace HumbleKeys.Models
         // v2 total_choices - number of games redeemed
         public int choices_remaining;
         public DateTime created;
+        
+        public bool is_claimable_bundle
+        {
+            get
+            {
+                var bundleNameComparator = product.human_name.ToLowerInvariant();
+                return bundleNameComparator.Contains("monthly") || bundleNameComparator.Contains("choice");
+            }
+        }
     }
 }

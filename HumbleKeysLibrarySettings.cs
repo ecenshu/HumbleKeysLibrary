@@ -9,7 +9,7 @@ using CloneObject = HumbleKeys.Extensions.CloneObject;
 
 namespace HumbleKeys
 {
-    public class HumbleKeysLibrarySettings : ObservableObject, IHumbleKeysAccountClientSettings, ISettings
+    public class HumbleKeysLibrarySettings : ObservableObject, IHumbleKeysAccountClientSettings
     {
         private readonly HumbleKeysLibrary plugin;
         private static ILogger logger = LogManager.GetLogger();
