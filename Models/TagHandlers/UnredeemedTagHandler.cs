@@ -18,6 +18,21 @@ namespace HumbleKeys.Models.TagHandlers
         // unredeemed means it has a cdkey associated but not detected in other game library where key will be consumed
         public override TResult Handle(TRequest request)
         {
+            if (request.SourceOrder.product.category == "storefront" && request.HumbleGame.is_virtual == false)
+            {
+                if (string.IsNullOrEmpty(request.HumbleGame.redeemed_key_val?.ToString()))
+                {
+                    return new TagHandlerResult(CurrentTag.Name, !IsTagCurrent(request)) as TResult;
+                }
+            }
+
+            if (request.SourceOrder.is_claimable_bundle == false && request.HumbleGame.is_virtual == false)
+            {
+                if (string.IsNullOrEmpty(request.HumbleGame.redeemed_key_val?.ToString()))
+                {
+                    return new TagHandlerResult(CurrentTag.Name, !IsTagCurrent(request)) as TResult;
+                }
+            }
             if (string.IsNullOrEmpty(request.HumbleGame.redeemed_key_val?.ToString())) return base.Handle(request);
             if (request.SourceOrder.is_claimable_bundle && request.HumbleGame.is_virtual) return base.Handle(request);
             

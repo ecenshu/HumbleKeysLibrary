@@ -436,7 +436,7 @@ namespace HumbleKeys
                             PlayniteApi.Database.Games.Update(gameEntry);
                             PlayniteApi.Notifications.Add(
                                 new NotificationMessage("HumbleKeysLibraryUpdate_" + gameEntry.Id,
-                                    $"Tags Updated for {gameEntry.Name}: " + GetOrderRedemptionTagState(tpkd, sourceOrder), NotificationType.Info,
+                                    $"Tags Updated for {gameEntry.Name}: " + recordChanged.TagName, NotificationType.Info,
                                     () =>
                                     {
                                         if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen) return;
@@ -657,6 +657,11 @@ namespace HumbleKeys
             return IsKeyPresent(t) ? REDEEMED_STR : (order != null && !string.IsNullOrEmpty(order.product.choice_url) && !t.is_virtual) ? CLAIMED_STR : UNREDEEMED_STR;
         }
 
+        /// <summary>
+        /// Maybe check against user's steamapi for ownership of dlc (https://store.steampowered.com/dynamicstore/userdata) rgOwnedApps collection
+        /// </summary>
+        /// <param name="args"></param>
+        /// <returns></returns>
         public bool GameExistsInLibrary(TagHandlerArgs args)
         {
             // for each supported library type, check the plugin library
