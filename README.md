@@ -16,7 +16,6 @@ You can install it via Playnite's built-in add-on browser or:
 * `Create Tags for Bundle Names` is a setting added in v0.1.5. When an entry not `None` is selected, it will create a tag in the format of `Bundle: [Bundle Name]` (Updated in v0.3.0)
 * `Unredeemable key handling` is a setting added in v0.3.4. Unredeemable virtual orders (either expired and cannot be redeemed or part of a Bundle where all choices have been made) can be tagged as "Key: Unredeemable" or not added to the library. For existing games, if Tag is selected a new tag will replace the existing 'Key: Unredeemed' tag with 'Key: Unredeemable', if Delete is selected the game will be deleted from the library if it cannot be redeemed.
 * `Enable Cache` is a setting added in v0.3.0. When checked, HumbleKeysLibrary will create JSON files for data retrieved from the Humble API in the ExtensionsData directory. If a Cache file exists, the API will not be queried to prevent spamming Humble. This applies to Purchases, Memberships (Humble Monthly) and Orders.
-
 ## Details
 ### Tags
 * `Key: Redeemed` - this tag is attached to entries that have been redeemed. Corresponds to Humble API `tpkd_dict.all_tpks[n].redeemed_key_value`.
