@@ -6,6 +6,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using Playnite.SDK.Data;
 
 namespace HumbleKeys.Services
@@ -14,7 +16,10 @@ namespace HumbleKeys.Services
     {
         private static readonly ILogger logger = LogManager.GetLogger();
         private readonly IWebView webView;
-        private const string loginUrl = @"https://www.humblebundle.com/login?goto=%2Fhome%2Flibrary&qs=hmb_source%3Dnavbar";
+
+        private const string loginUrl =
+            @"https://www.humblebundle.com/login?goto=%2Fhome%2Flibrary&qs=hmb_source%3Dnavbar";
+
         private const string libraryUrl = @"https://www.humblebundle.com/home/library?hmb_source=navbar";
         private const string logoutUrl = @"https://www.humblebundle.com/logout?goto=/";
         private const string orderUrlMask = @"https://www.humblebundle.com/api/v1/order/{0}?all_tpkds=true";
@@ -22,15 +27,22 @@ namespace HumbleKeys.Services
         const string subscriptionCategory = @"subscriptioncontent";
         readonly bool preferCache;
         readonly string localCachePath;
-        public HumbleKeysAccountClient(IWebView webView) { this.webView = webView; }
-        
-        public HumbleKeysAccountClient(IWebView webView, IHumbleKeysAccountClientSettings clientSettings) : this(webView)
+
+        public HumbleKeysAccountClient(IWebView webView)
         {
-            localCachePath = Directory.Exists(clientSettings.CachePath) ? clientSettings.CachePath : new FileInfo(Assembly.GetExecutingAssembly().Location).DirectoryName;
+            this.webView = webView;
+        }
+
+        public HumbleKeysAccountClient(IWebView webView, IHumbleKeysAccountClientSettings clientSettings) :
+            this(webView)
+        {
+            localCachePath = Directory.Exists(clientSettings.CachePath)
+                ? clientSettings.CachePath
+                : new FileInfo(Assembly.GetExecutingAssembly().Location).DirectoryName;
 
             preferCache = clientSettings.CacheEnabled;
             // initialise folder structure for local cache
-            var cachePaths = new[] { "order", "membership/v2","membership/v3","membership" };
+            var cachePaths = new[] { "order", "membership/v2", "membership/v3", "membership" };
             if (preferCache)
             {
                 foreach (var cachePath in cachePaths)
@@ -47,14 +59,16 @@ namespace HumbleKeys.Services
                 foreach (var cachePath in cachePaths)
                 {
                     if (!Directory.Exists($"{localCachePath}\\{cachePath}")) continue;
-                    
+
                     var cachedFiles = Directory.EnumerateFiles($"{localCachePath}\\{cachePath}");
                     foreach (var cachedFile in cachedFiles)
                     {
                         File.Delete(cachedFile);
                     }
+
                     Directory.Delete($"{localCachePath}\\{cachePath}");
                 }
+
                 logger.Info("Cache cleared");
             }
         }
@@ -83,14 +97,13 @@ namespace HumbleKeys.Services
             return webView.GetPageSource().Contains("\"gamekeys\":");
         }
 
-
-        internal List<string> GetLibraryKeys()
+        internal async Task<List<string>> GetLibraryKeysAsync(CancellationToken token = default)
         {
             var keysCacheFilename = $"{localCachePath}\\gamekeys.json";
             if (preferCache)
             {
                 // Request may be cached in local filesystem to prevent spamming Humble
-                var cachedData = GetCacheContent<List<string>>(keysCacheFilename);
+                var cachedData = await GetCacheContentAsync<List<string>>(keysCacheFilename, token);
                 if (cachedData != null)
                 {
                     return cachedData;
@@ -98,32 +111,35 @@ namespace HumbleKeys.Services
             }
 
             webView.NavigateAndWait(libraryUrl);
-                var libSource = webView.GetPageSource();
-                var match = Regex.Match(libSource, @"""gamekeys"":\s*(\[.+\])");
-                if (!match.Success) throw new Exception("User is not authenticated.");
-                
-                var strKeys = match.Groups[1].Value;
-                logger.Trace(
-                    $"Request:{libraryUrl} Content:{Serialization.ToJson(Serialization.FromJson<List<string>>(strKeys), true)}");
-                if (preferCache)
-                {
-                    CreateCacheContent(keysCacheFilename,strKeys);
-                }
-                return Serialization.FromJson<List<string>>(strKeys);
+            var libSource = await webView.GetPageSourceAsync();
+            var match = Regex.Match(libSource, @"""gamekeys"":\s*(\[.+\])");
+            if (!match.Success) throw new Exception("User is not authenticated.");
 
+            var strKeys = match.Groups[1].Value;
+            logger.Trace(
+                $"Request:{libraryUrl} Content:{Serialization.ToJson(Serialization.FromJson<List<string>>(strKeys), true)}");
+            if (preferCache)
+            {
+                CreateCacheContent(keysCacheFilename, strKeys);
+            }
+
+            return Serialization.FromJson<List<string>>(strKeys);
         }
 
-        string GetCacheContent(string keysCacheFilename)
+        async Task<string> GetCacheContentAsync(string keysCacheFilename, CancellationToken cancellationToken = default)
         {
             if (!File.Exists(keysCacheFilename)) return null;
-            var streamReader = new StreamReader(new FileStream(keysCacheFilename, FileMode.Open));
-            var cacheContent = streamReader.ReadToEnd();
-            streamReader.Close();
-            return cacheContent;
+            using (var streamReader = new StreamReader(new FileStream(keysCacheFilename, FileMode.Open))) {
+                var cacheContent = await streamReader.ReadToEndAsync();
+                streamReader.Close();
+
+                return cancellationToken.IsCancellationRequested ? string.Empty : cacheContent;
+            }
         }
-        T GetCacheContent<T>(string keysCacheFilename) where T : class
+
+        async Task<T> GetCacheContentAsync<T>(string keysCacheFilename, CancellationToken cancellationToken = default) where T : class
         {
-            var cacheContent = GetCacheContent(keysCacheFilename);
+            var cacheContent = await GetCacheContentAsync(keysCacheFilename, cancellationToken);
             return cacheContent == null ? null : Serialization.FromJson<T>(cacheContent);
         }
 
@@ -133,25 +149,27 @@ namespace HumbleKeys.Services
             streamWriter.Write(strCacheEntry);
             streamWriter.Close();
         }
-        
-        internal Dictionary<string, Order> GetOrders(List<string> gameKeys, bool includeChoiceMonths = false)
+
+        internal async Task<Dictionary<string, Order>> GetOrdersAsync(List<string> gameKeys, bool includeChoiceMonths = false, CancellationToken cancellationToken = default)
         {
             var orders = new Dictionary<string, Order>();
             foreach (var key in gameKeys)
             {
+                if (cancellationToken.IsCancellationRequested) break;
+                
                 var orderUri = string.Format(orderUrlMask, key);
                 var cacheFileName = $"{localCachePath}/order/{key}.json";
                 Order order = null;
                 bool cacheHit;
                 if (preferCache)
                 {
-                    order = GetCacheContent<Order>(cacheFileName);
+                    order = await GetCacheContentAsync<Order>(cacheFileName, cancellationToken);
                 }
 
                 if (order == null) {
                     cacheHit = false;
                     webView.NavigateAndWait(orderUri);
-                    var strContent = webView.GetPageText();
+                    var strContent = await webView.GetPageTextAsync();
                     if (preferCache)
                     {
                         CreateCacheContent(cacheFileName,strContent);
@@ -166,7 +184,7 @@ namespace HumbleKeys.Services
 
                 if (string.Equals(order.product.category, subscriptionCategory, StringComparison.Ordinal) && !string.IsNullOrEmpty(order.product.choice_url) && includeChoiceMonths)
                 {
-                    AddChoiceMonthlyGames(order);
+                    await AddChoiceMonthlyGamesAsync(order, cancellationToken);
                 }
                 orders.Add(order.gamekey, order);
             }
@@ -174,7 +192,7 @@ namespace HumbleKeys.Services
             return orders;
         }
 
-        void AddChoiceMonthlyGames(Order order)
+        async Task AddChoiceMonthlyGamesAsync(Order order, CancellationToken cancellationToken = default)
         {
             string versionCachePath;
             if (order.product.is_subs_v2_product)
@@ -203,14 +221,14 @@ namespace HumbleKeys.Services
             if (preferCache)
             {
                 // Request may be cached in local filesystem to prevent spamming Humble
-                strChoiceMonth = GetCacheContent(orderCacheFilename);
+                strChoiceMonth = await GetCacheContentAsync(orderCacheFilename, cancellationToken);
                 cacheHit = !string.IsNullOrEmpty(strChoiceMonth);
             }
 
             if (string.IsNullOrEmpty(strChoiceMonth))
             {
                 webView.NavigateAndWait(choiceUrl);
-                var match = Regex.Match(webView.GetPageSource(),
+                var match = Regex.Match(await webView.GetPageSourceAsync(),
                     @"<script id=""webpack-monthly-product-data"" type=""application/json"">([\s\S]*?)</script>");
                 if (match.Success)
                 {

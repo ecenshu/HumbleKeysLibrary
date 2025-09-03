@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Controls;
 using HumbleKeys.Models;
 using HumbleKeys.Services;
@@ -64,9 +66,17 @@ namespace HumbleKeys
 
             try
             {
-                var orders = ScrapeOrders();
-                var selectedTpkds = SelectTpkds(orders);
-                ProcessOrders(orders, selectedTpkds, ref importedGames, ref removedGames);
+                if (!args.CancelToken.IsCancellationRequested)
+                {
+                    var ordersAsync = ScrapeOrdersAsync(args.CancelToken);
+                    if (!ordersAsync.IsCanceled)
+                    {
+                        var orders = ordersAsync.GetAwaiter().GetResult();
+                        var selectedTpkds = SelectTpkds(orders);
+                        var processOrdersAsync = ProcessOrdersAsync(orders, selectedTpkds, importedGames, removedGames);
+                        processOrdersAsync.Wait(args.CancelToken); 
+                    }
+                }
             }
             catch (Exception e)
             {
@@ -94,9 +104,14 @@ namespace HumbleKeys
 
         public Dictionary<string, Order> ScrapeOrders()
         {
+            var scrapeOrdersAsync = ScrapeOrdersAsync();
+            return scrapeOrdersAsync.Result;
+        }
+
+        public async Task<Dictionary<string, Order>> ScrapeOrdersAsync(CancellationToken cancellationToken = default)
+        {
             Dictionary<string, Order> orders;
-            using (var view = PlayniteApi.WebViews.CreateOffscreenView(
-                       new WebViewSettings { JavaScriptEnabled = false }))
+            using (var view = PlayniteApi.WebViews.CreateOffscreenView(new WebViewSettings { JavaScriptEnabled = false }))
             {
                 var api = new Services.HumbleKeysAccountClient(view,
                     new HumbleKeysAccountClientSettings
@@ -104,8 +119,8 @@ namespace HumbleKeys
                         CacheEnabled = Settings.CacheEnabled,
                         CachePath = $"{PlayniteApi.Paths.ExtensionsDataPath}\\{Id}"
                     });
-                var keys = api.GetLibraryKeys();
-                orders = api.GetOrders(keys, Settings.ImportChoiceKeys);
+                var keys = await api.GetLibraryKeysAsync(cancellationToken);
+                orders = await api.GetOrdersAsync(keys, Settings.ImportChoiceKeys, cancellationToken);
             }
 
             return orders;
@@ -129,7 +144,7 @@ namespace HumbleKeys
         /// <param name="tpkds"></param>
         /// <param name="importedGames">List of Games added from orders</param>
         /// <param name="removedGames">List of Games removed from orders due to settings</param>
-        protected void ProcessOrders(Dictionary<string,Order> orders, IEnumerable<IGrouping<string, Order.TpkdDict.Tpk>> tpkds, ref List<Game> importedGames, ref List<Game> removedGames)
+        protected async Task ProcessOrdersAsync(Dictionary<string,Order> orders, IEnumerable<IGrouping<string, Order.TpkdDict.Tpk>> tpkds, List<Game> importedGames, List<Game> removedGames, CancellationToken cancellationToken = default)
         {
             var redeemedTag = PlayniteApi.Database.Tags.Add(REDEEMED_STR);
             var unredeemedTag = PlayniteApi.Database.Tags.Add(UNREDEEMED_STR);
@@ -138,6 +153,7 @@ namespace HumbleKeys
             PlayniteApi.Database.BeginBufferUpdate();
             foreach (var tpkdGroup in tpkds)
             {
+                if (cancellationToken.IsCancellationRequested) break;
                 var tpkdGroupEntries = tpkdGroup.AsEnumerable();
                 Tag humbleChoiceTag = null;
                 var groupEntries = tpkdGroupEntries.ToList();
