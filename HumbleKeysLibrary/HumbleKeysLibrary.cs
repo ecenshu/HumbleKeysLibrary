@@ -52,6 +52,12 @@ namespace HumbleKeys
             Settings = new HumbleKeysLibrarySettings(this);
         }
 
+        public HumbleKeysLibrary(IPlayniteAPI api, HumbleKeysLibrarySettings settings) : base(api)
+        {
+            Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true };
+            Settings = settings;
+        }
+
         public override ISettings GetSettings(bool firstRunSettings)
         {
             return Settings;

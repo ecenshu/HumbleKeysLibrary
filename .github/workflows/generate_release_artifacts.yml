@@ -49,6 +49,7 @@
           uses: pozetroninc/github-action-get-latest-release@master
           with:
             repository: ${{ github.repository }}
+            token: ${{ secrets.GITHUB_TOKEN }}
             excludes: prerelease, draft
         - name: Parse version from latest-release
           id: latest-release-semver
@@ -84,7 +85,7 @@
           env:
             BRANCH: ${{ github.ref_name }}
           id: version_branch
-          run: echo "branch_version=${BRANCH##*/}" >> $GITHUB_OUTPUT
+          run: echo "branch_version=${BRANCH##*/v}" >> $GITHUB_OUTPUT
 
         - name: Generate version from branch
           if: ${{ steps.version_branch.outputs.branch_version && (github.ref_type == 'branch') && (startsWith(github.ref_name,'releases/v') || startsWith(github.ref_name,'beta/v')) }}
@@ -159,12 +160,12 @@
 
         - uses: actions/checkout@v4
 
-        - name: Set version in .\Properties\AssemblyInfo.cs
+        - name: Set version in .\HumbleKeysLibrary\Properties\AssemblyInfo.cs
           id: set-assembly-version
           uses: secondbounce/assemblyinfo-update@v2
           with:
             version: ${{env.version}}
-            directory: '.\Properties'
+            directory: '.\HumbleKeysLibrary\Properties'
             filename: 'AssemblyInfo.cs'
             recursive: false
 
@@ -188,13 +189,13 @@
           run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} ${{env.SOLUTION_FILE_PATH}} /verbosity:diag
 
         - name: Rename PEXT for upload
-          run: mv bin/Release/pext/HumbleKeysLibrary.pext bin/Release/pext/HumbleKeysLibrary_${{env.version}}.pext
+          run: mv HumbleKeysLibrary/bin/Release/pext/HumbleKeysLibrary.pext HumbleKeysLibrary/bin/Release/pext/HumbleKeysLibrary_${{env.version}}.pext
 
         - name: Create Artifacts
           uses: actions/upload-artifact@v4.3.6
           with:
             name: "HumbleKeysLibrary_${{env.version}}.pext"
-            path: bin/Release/pext/HumbleKeysLibrary_${{env.version}}.pext
+            path: HumbleKeysLibrary/bin/Release/pext/HumbleKeysLibrary_${{env.version}}.pext
             if-no-files-found: 'error'
             overwrite: 'true'
 
@@ -209,7 +210,7 @@
           uses: softprops/action-gh-release@v2.0.8
           with:
             name: ${{env.version}}
-            body_path: changelog.md
+            body_path: HumbleKeysLibrary/changelog.md
             files: 'artifacts/*'
             draft: true
     
@@ -259,7 +260,7 @@
           id: playnite_api_version
           with:
             cmd: |
-              yq 'from_xml | .Project.ItemGroup[].PackageReference[] | select(.+@Include=="PlayniteSDK").+@Version' ./HumbleKeysLibrary.csproj
+              yq 'from_xml | .Project.ItemGroup[].PackageReference[] | select(.+@Include=="PlayniteSDK").+@Version' ./HumbleKeysLibrary/HumbleKeysLibrary.csproj
 
         - name: Get current date
           id: date
@@ -268,7 +269,7 @@
         - name: Update extension.yaml values
           uses: mikefarah/yq@master
           with:
-            cmd: yq -i '.Version = "${{env.version}}" | .Author = "${{github.repository_owner}}" | .Links[] |= select(.Name=="GitHub").Url="${{github.server_url}}/${{github.repository}}"' ./extension.yaml
+            cmd: yq -i '.Version = "${{env.version}}" | .Author = "${{github.repository_owner}}" | .Links[] |= select(.Name=="GitHub").Url="${{github.server_url}}/${{github.repository}}"' ./HumbleKeysLibrary/extension.yaml
 
         - name: Update AddonDb Manifest
           uses: mikefarah/yq@master
@@ -276,29 +277,29 @@
             cmd: |
               yq -i '
               .IconUrl = "https://raw.githubusercontent.com/${{github.repository}}/master/icon.png" |
-              .InstallerManifestUrl = "https://raw.githubusercontent.com/${{github.repository}}/master/Manifests/HumbleKeysLibrary_Installer.yaml" | 
+              .InstallerManifestUrl = "https://raw.githubusercontent.com/${{github.repository}}/master/Manifests/HumbleKeysLibrary/HumbleKeysLibrary_Installer.yaml" | 
               .Author = "${{github.repository_owner}}" | 
               .SourceUrl = "${{github.server_url}}/${{github.repository}}"
-              ' ./Manifests/HumbleKeysLibrary_AddonDB.yaml
+              ' ./HumbleKeysLibrary/Manifests/HumbleKeysLibrary_AddonDB.yaml
 
         - name: Installer Manifest current version
           id: manifest_version
           uses: mikefarah/yq@master
           with:
-            cmd: yq '.Packages[0].Version' ./Manifests/HumbleKeysLibrary_Installer.yaml
+            cmd: yq '.Packages[0].Version' ./HumbleKeysLibrary/Manifests/HumbleKeysLibrary_Installer.yaml
 
         - name: Add to Installer Manifest
           if: steps.manifest_version.outputs.result != env.version
           uses: mikefarah/yq@master
           with:
             cmd: |
-              export CHANGELOG=`awk 'BEGIN {print "["}/^[\r]*$/{flag=1;next} /^# ${{env.version}}/{flag=1;next} /^# ${{env.prior-version}}/{flag=0;exit} (firstline) {print ","} flag {printf("\047%s\047",$0);firstline=1} END {print "]"}' changelog.md`
+              export CHANGELOG=`awk 'BEGIN {print "["}/^[\r]*$/{flag=1;next} /^# ${{env.version}}/{flag=1;next} /^# ${{env.prior-version}}/{flag=0;exit} (firstline) {print ","} flag {printf("\047%s\047",$0);firstline=1} END {print "]"}' HumbleKeysLibrary/changelog.md`
               yq -i '.Packages = [{
               "Version":"${{env.version}}",
               "RequiredApiVersion":"${{steps.playnite_api_version.outputs.result}}",
               "ReleaseDate": (with_dtf("2025-12-01"; "${{steps.date.outputs.date}}") | from_json),
               "PackageUrl":"${{github.server_url}}/${{github.repository}}/releases/download/${{env.version}}/HumbleKeysLibrary_${{env.version}}.pext"
-              }] + .Packages | .Packages[0].Changelog = env(CHANGELOG) | .Packages[0].Changelog style="single"' ./Manifests/HumbleKeysLibrary_Installer.yaml
+              }] + .Packages | .Packages[0].Changelog = env(CHANGELOG) | .Packages[0].Changelog style="single"' ./HumbleKeysLibrary/Manifests/HumbleKeysLibrary_Installer.yaml
 
         - name: Update Installer Manifest
           if: steps.manifest_version.outputs.result == env.version
@@ -306,34 +307,34 @@
           with:
             cmd: |
               export CHANGELOG=`awk 'BEGIN {print "["}/^[\r]*$/{flag=1;next} /^# ${{env.version}}/{flag=1;next} /^# ${{env.prior-version}}/{flag=0;exit} (firstline) {printf ","} flag {printf("\047%s\047",$0);firstline=1} END {print "]"}' changelog.md`
-              yq -i 'with(.Packages[] ; select(.Version=="${{env.version}}") | .ReleaseDate=(with_dtf("2025-12-01"; "${{steps.date.outputs.date}}") | from_json) | .Changelog = env(CHANGELOG) | .Changelog style="single")' ./Manifests/HumbleKeysLibrary_Installer.yaml
+              yq -i 'with(.Packages[] ; select(.Version=="${{env.version}}") | .ReleaseDate=(with_dtf("2025-12-01"; "${{steps.date.outputs.date}}") | from_json) | .Changelog = env(CHANGELOG) | .Changelog style="single")' ./HumbleKeysLibrary/Manifests/HumbleKeysLibrary_Installer.yaml
 
         - name: Commit extension Manifest
           run: |
-            if git diff --quiet ./extension.yaml; then
+            if git diff --quiet ./HumbleKeysLibrary/extension.yaml; then
               echo "No changes to commit"
             else
-              git add ./extension.yaml
+              git add ./HumbleKeysLibrary/extension.yaml
               git commit -m "Update Extension manifest"
               git push
             fi
 
         - name: Commit AddonDb Manifest
           run: |
-            if git diff --quiet ./Manifests/HumbleKeysLibrary_AddonDB.yaml; then
+            if git diff --quiet ./HumbleKeysLibrary/Manifests/HumbleKeysLibrary_AddonDB.yaml; then
               echo "No changes to commit"
             else
-              git add ./Manifests/HumbleKeysLibrary_AddonDB.yaml
+              git add ./HumbleKeysLibrary/Manifests/HumbleKeysLibrary_AddonDB.yaml
               git commit -m "Update AddonDB manifest"
               git push
             fi
 
         - name: Commit Installer Manifest
           run: |
-            if git diff --quiet ./Manifests/HumbleKeysLibrary_Installer.yaml; then
+            if git diff --quiet ./HumbleKeysLibrary/Manifests/HumbleKeysLibrary_Installer.yaml; then
               echo "No changes to commit"
             else
-              git add ./Manifests/HumbleKeysLibrary_Installer.yaml
+              git add ./HumbleKeysLibrary/Manifests/HumbleKeysLibrary_Installer.yaml
               git commit -m "Update Installer manifest"
               git push
             fi
