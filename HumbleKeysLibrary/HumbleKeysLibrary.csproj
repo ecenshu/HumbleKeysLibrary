@@ -95,7 +95,6 @@
     <Content Include="attributions.txt" />
     <Content Include="changelog.md" />
     <Content Include="LICENSE" />
-    <Content Include="README.md" />
   </ItemGroup>
   <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
