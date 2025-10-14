@@ -24,15 +24,19 @@ namespace HumbleKeys.Services
         const string subscriptionCategory = @"subscriptioncontent";
         readonly bool preferCache;
         readonly string localCachePath;
-        public HumbleKeysAccountClient(IWebView webView) { this.webView = webView; }
-        
+
+        public HumbleKeysAccountClient(IWebView webView)
+        {
+            this.webView = webView;
+        }
+
         public HumbleKeysAccountClient(IWebView webView, IHumbleKeysAccountClientSettings clientSettings) : this(webView)
         {
             localCachePath = Directory.Exists(clientSettings.CachePath) ? clientSettings.CachePath : new FileInfo(Assembly.GetExecutingAssembly().Location).DirectoryName;
 
             preferCache = clientSettings.CacheEnabled;
             // initialise folder structure for local cache
-            var cachePaths = new[] { "order", "membership/v2","membership/v3","membership" };
+            var cachePaths = new[] { "order", "membership/v2", "membership/v3", "membership" };
             if (preferCache)
             {
                 foreach (var cachePath in cachePaths)
@@ -42,6 +46,7 @@ namespace HumbleKeys.Services
                         Directory.CreateDirectory($"{localCachePath}\\{cachePath}");
                     }
                 }
+
                 logger.Info("Cache directories prepared");
             }
             else
@@ -50,7 +55,7 @@ namespace HumbleKeys.Services
                 foreach (var cachePath in cachePaths)
                 {
                     if (!Directory.Exists($"{localCachePath}\\{cachePath}")) continue;
-                    
+
                     var cachedFiles = Directory.EnumerateFiles($"{localCachePath}\\{cachePath}");
                     foreach (var cachedFile in cachedFiles)
                     {
@@ -81,13 +86,13 @@ namespace HumbleKeys.Services
             webView.OpenDialog();
         }
 
-
         public bool GetIsUserLoggedIn()
         {
             webView.NavigateAndWait(libraryUrl);
             return webView.GetPageSource().Contains("\"gamekeys\":");
         }
 
+        /// Retrieves all gameKeys associated with the current logged in account
         internal async Task<List<string>> GetLibraryKeysAsync(CancellationToken token = default)
         {
             var keysCacheFilename = $"{localCachePath}\\gamekeys.json";
@@ -121,7 +126,8 @@ namespace HumbleKeys.Services
         async Task<string> GetCacheContentAsync(string keysCacheFilename, CancellationToken cancellationToken = default)
         {
             if (!File.Exists(keysCacheFilename)) return null;
-            using (var streamReader = new StreamReader(new FileStream(keysCacheFilename, FileMode.Open))) {
+            using (var streamReader = new StreamReader(new FileStream(keysCacheFilename, FileMode.Open)))
+            {
                 var cacheContent = await streamReader.ReadToEndAsync();
                 streamReader.Close();
 
@@ -142,46 +148,19 @@ namespace HumbleKeys.Services
             streamWriter.Close();
         }
 
-        internal async Task<Dictionary<string, Order>> GetOrdersAsync(List<string> gameKeys, bool includeChoiceMonths = false, CancellationToken cancellationToken = default)
+        internal async Task<ICollection<Order>> GetOrdersAsync(ICollection<string> gameKeys, bool includeChoiceMonths = false, CancellationToken cancellationToken = default)
         {
-            var orders = new Dictionary<string, Order>();
-            logger.Trace($"GetOrders: Processing {gameKeys.Count} game keys");
+            var orders = new List<Order>();
+            var gameKeysList = gameKeys.ToList();
+            logger.Trace($"GetOrders: Processing {gameKeysList.Count} game keys");
 
-            foreach (var key in gameKeys)
+            foreach (var key in gameKeysList)
             {
                 if (cancellationToken.IsCancellationRequested) break;
-                
-                var orderUri = string.Format(orderUrlMask, key);
-                var cacheFileName = $"{localCachePath}/order/{key}.json";
-                Order order = null;
-                bool cacheHit;
-                if (preferCache)
-                {
-                    order = await GetCacheContentAsync<Order>(cacheFileName, cancellationToken);
-                }
 
-                if (order == null) {
-                    cacheHit = false;
-                    logger.Trace($"Fetching order details");
-                    webView.NavigateAndWait(orderUri);
-                    var strContent = await webView.GetPageTextAsync();
-                    if (preferCache)
-                    {
-                        CreateCacheContent(cacheFileName,strContent);
-                    }
-                    order = Serialization.FromJson<Order>(strContent);
-                }
-                else
-                {
-                    cacheHit = true;
-                }
-                logger.Trace($"Request:{orderUri} {(cacheHit?"Cached ":"")}Content:{Serialization.ToJson(order, true)}");
+                var order = await GetOrderAsync(key, cancellationToken);
 
-                if (string.Equals(order.product.category, subscriptionCategory, StringComparison.Ordinal) && !string.IsNullOrEmpty(order.product.choice_url) && includeChoiceMonths)
-                {
-                    await AddChoiceMonthlyGamesAsync(order, cancellationToken);
-                }
-                orders.Add(order.gamekey, order);
+                orders.Add(order);
                 logger.Trace($"GetOrders: Added order {order.gamekey} with {order.tpkd_dict.all_tpks.Count} total tpks");
             }
 
@@ -189,13 +168,14 @@ namespace HumbleKeys.Services
             return orders;
         }
 
-        async Task AddChoiceMonthlyGamesAsync(Order order, CancellationToken cancellationToken = default)
+        public async Task AddChoiceMonthlyGamesAsync(Order order, CancellationToken cancellationToken = default)
         {
             string versionCachePath;
             if (order.product.is_subs_v2_product)
             {
                 versionCachePath = "v2";
-            } else if (order.product.is_subs_v3_product)
+            }
+            else if (order.product.is_subs_v3_product)
             {
                 versionCachePath = "v3";
             }
@@ -210,9 +190,10 @@ namespace HumbleKeys.Services
             {
                 cachePath = $"membership/{versionCachePath}/{choiceDate:yyyy-MM}";
             }
+
             var choiceUrl = $"https://www.humblebundle.com/membership/{order.product.choice_url}";
             var strChoiceMonth = string.Empty;
-            
+
             var orderCacheFilename = $"{localCachePath}/{cachePath}.json";
             var cacheHit = false;
             if (preferCache)
@@ -243,17 +224,17 @@ namespace HumbleKeys.Services
             }
 
             if (string.IsNullOrEmpty(strChoiceMonth)) return;
-            
+
             IChoiceMonth choiceMonth = null;
             if (order.product.is_subs_v2_product)
             {
                 choiceMonth = Serialization.FromJson<ChoiceMonthV2>(strChoiceMonth);
-                logger.Trace($"Request:{choiceUrl} {(cacheHit?"From Cache ":"")}Content:{Serialization.ToJson(choiceMonth, true)}");
+                logger.Trace($"Request:{choiceUrl} {(cacheHit ? "From Cache " : "")}Content:{Serialization.ToJson(choiceMonth, true)}");
             }
             else if (order.product.is_subs_v3_product)
             {
                 choiceMonth = Serialization.FromJson<ChoiceMonthV3>(strChoiceMonth);
-                logger.Trace($"Request:{choiceUrl} {(cacheHit?"From Cache ":"")}Content:{Serialization.ToJson(choiceMonth, true)}");
+                logger.Trace($"Request:{choiceUrl} {(cacheHit ? "From Cache " : "")}Content:{Serialization.ToJson(choiceMonth, true)}");
             }
             else
             {
@@ -261,7 +242,7 @@ namespace HumbleKeys.Services
             }
 
             if (choiceMonth == null) return;
-            
+
             // Add contentChoice to all_tpks if it doesn't already exist (all_tpks gets populated by the order if it is already redeemed)
             // Only add to the order if the month contains redeemable games, may already have exhausted the selection count
             var orderMachineNames = order.tpkd_dict.all_tpks.Select(tpk => tpk.machine_name).ToList();
@@ -270,7 +251,7 @@ namespace HumbleKeys.Services
             foreach (var contentChoiceKey in contentChoicesNotInOrder)
             {
                 // get tkpds either directly or via nested_choice_tpkds
-                Order.TpkdDict.Tpk[] orderEntries = null; 
+                Order.TpkdDict.Tpk[] orderEntries = null;
                 var contentChoice = choiceMonth.ContentChoices[contentChoiceKey];
                 if (contentChoice.tpkds != null)
                 {
@@ -283,6 +264,7 @@ namespace HumbleKeys.Services
                     {
                         nestedOrderEntries.AddRange(nestedChoiceTpkd.Value);
                     }
+
                     orderEntries = nestedOrderEntries.ToArray();
                 }
                 else
@@ -291,7 +273,7 @@ namespace HumbleKeys.Services
                 }
 
                 if (orderEntries == null) continue;
-                
+
                 foreach (var contentChoiceTpkd in orderEntries)
                 {
                     contentChoiceTpkd.is_virtual = true;
@@ -301,15 +283,37 @@ namespace HumbleKeys.Services
             }
         }
 
-        internal List<Order> GetOrders(string cachePath)
+        public async Task<Order> GetOrderAsync(string key, CancellationToken cancellationToken)
         {
-            var orders = new List<Order>();
-            foreach (var cacheFile in Directory.GetFiles(cachePath))
+            var orderUri = string.Format(orderUrlMask, key);
+            var cacheFileName = $"{localCachePath}/order/{key}.json";
+            Order order = null;
+            bool cacheHit;
+            if (preferCache)
             {
-                orders.Add(Serialization.FromJsonFile<Order>(cacheFile));
+                order = await GetCacheContentAsync<Order>(cacheFileName, cancellationToken);
             }
 
-            return orders;
+            if (order == null)
+            {
+                cacheHit = false;
+                logger.Trace($"Fetching order details");
+                webView.NavigateAndWait(orderUri);
+                var strContent = await webView.GetPageTextAsync();
+                if (preferCache)
+                {
+                    CreateCacheContent(cacheFileName, strContent);
+                }
+
+                order = Serialization.FromJson<Order>(strContent);
+            }
+            else
+            {
+                cacheHit = true;
+            }
+
+            logger.Trace($"Request:{orderUri} {(cacheHit ? "Cached " : "")}Content:{Serialization.ToJson(order, true)}");
+            return order;
         }
     }
 }
