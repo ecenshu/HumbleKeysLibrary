@@ -6,6 +6,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using Playnite.SDK.Data;
 
 namespace HumbleKeys.Services
@@ -54,8 +56,10 @@ namespace HumbleKeys.Services
                     {
                         File.Delete(cachedFile);
                     }
+
                     Directory.Delete($"{localCachePath}\\{cachePath}");
                 }
+
                 logger.Info("Cache cleared");
             }
         }
@@ -84,14 +88,13 @@ namespace HumbleKeys.Services
             return webView.GetPageSource().Contains("\"gamekeys\":");
         }
 
-
-        internal List<string> GetLibraryKeys()
+        internal async Task<List<string>> GetLibraryKeysAsync(CancellationToken token = default)
         {
             var keysCacheFilename = $"{localCachePath}\\gamekeys.json";
             if (preferCache)
             {
                 // Request may be cached in local filesystem to prevent spamming Humble
-                var cachedData = GetCacheContent<List<string>>(keysCacheFilename);
+                var cachedData = await GetCacheContentAsync<List<string>>(keysCacheFilename, token);
                 if (cachedData != null)
                 {
                     return cachedData;
@@ -100,32 +103,35 @@ namespace HumbleKeys.Services
 
             logger.Trace("Fetching library keys from Humble Bundle");
             webView.NavigateAndWait(libraryUrl);
-            var libSource = webView.GetPageSource();
+            var libSource = await webView.GetPageSourceAsync();
             var match = Regex.Match(libSource, @"""gamekeys"":\s*(\[.+\])");
             if (!match.Success) throw new Exception("User is not authenticated.");
-                
+
             var strKeys = match.Groups[1].Value;
             logger.Trace(
                 $"Request:{libraryUrl} Content:{Serialization.ToJson(Serialization.FromJson<List<string>>(strKeys), true)}");
             if (preferCache)
             {
-                CreateCacheContent(keysCacheFilename,strKeys);
+                CreateCacheContent(keysCacheFilename, strKeys);
             }
+
             return Serialization.FromJson<List<string>>(strKeys);
         }
 
-        string GetCacheContent(string keysCacheFilename)
+        async Task<string> GetCacheContentAsync(string keysCacheFilename, CancellationToken cancellationToken = default)
         {
             if (!File.Exists(keysCacheFilename)) return null;
-            var streamReader = new StreamReader(new FileStream(keysCacheFilename, FileMode.Open));
-            var cacheContent = streamReader.ReadToEnd();
-            streamReader.Close();
-            return cacheContent;
+            using (var streamReader = new StreamReader(new FileStream(keysCacheFilename, FileMode.Open))) {
+                var cacheContent = await streamReader.ReadToEndAsync();
+                streamReader.Close();
+
+                return cancellationToken.IsCancellationRequested ? string.Empty : cacheContent;
+            }
         }
 
-        T GetCacheContent<T>(string keysCacheFilename) where T : class
+        async Task<T> GetCacheContentAsync<T>(string keysCacheFilename, CancellationToken cancellationToken = default) where T : class
         {
-            var cacheContent = GetCacheContent(keysCacheFilename);
+            var cacheContent = await GetCacheContentAsync(keysCacheFilename, cancellationToken);
             return cacheContent == null ? null : Serialization.FromJson<T>(cacheContent);
         }
 
@@ -135,28 +141,30 @@ namespace HumbleKeys.Services
             streamWriter.Write(strCacheEntry);
             streamWriter.Close();
         }
-        
-        internal Dictionary<string, Order> GetOrders(List<string> gameKeys, bool includeChoiceMonths = false)
+
+        internal async Task<Dictionary<string, Order>> GetOrdersAsync(List<string> gameKeys, bool includeChoiceMonths = false, CancellationToken cancellationToken = default)
         {
             var orders = new Dictionary<string, Order>();
             logger.Trace($"GetOrders: Processing {gameKeys.Count} game keys");
 
             foreach (var key in gameKeys)
             {
+                if (cancellationToken.IsCancellationRequested) break;
+                
                 var orderUri = string.Format(orderUrlMask, key);
                 var cacheFileName = $"{localCachePath}/order/{key}.json";
                 Order order = null;
                 bool cacheHit;
                 if (preferCache)
                 {
-                    order = GetCacheContent<Order>(cacheFileName);
+                    order = await GetCacheContentAsync<Order>(cacheFileName, cancellationToken);
                 }
 
                 if (order == null) {
                     cacheHit = false;
                     logger.Trace($"Fetching order details");
                     webView.NavigateAndWait(orderUri);
-                    var strContent = webView.GetPageText();
+                    var strContent = await webView.GetPageTextAsync();
                     if (preferCache)
                     {
                         CreateCacheContent(cacheFileName,strContent);
@@ -171,7 +179,7 @@ namespace HumbleKeys.Services
 
                 if (string.Equals(order.product.category, subscriptionCategory, StringComparison.Ordinal) && !string.IsNullOrEmpty(order.product.choice_url) && includeChoiceMonths)
                 {
-                    AddChoiceMonthlyGames(order);
+                    await AddChoiceMonthlyGamesAsync(order, cancellationToken);
                 }
                 orders.Add(order.gamekey, order);
                 logger.Trace($"GetOrders: Added order {order.gamekey} with {order.tpkd_dict.all_tpks.Count} total tpks");
@@ -181,7 +189,7 @@ namespace HumbleKeys.Services
             return orders;
         }
 
-        void AddChoiceMonthlyGames(Order order)
+        async Task AddChoiceMonthlyGamesAsync(Order order, CancellationToken cancellationToken = default)
         {
             string versionCachePath;
             if (order.product.is_subs_v2_product)
@@ -210,14 +218,14 @@ namespace HumbleKeys.Services
             if (preferCache)
             {
                 // Request may be cached in local filesystem to prevent spamming Humble
-                strChoiceMonth = GetCacheContent(orderCacheFilename);
+                strChoiceMonth = await GetCacheContentAsync(orderCacheFilename, cancellationToken);
                 cacheHit = !string.IsNullOrEmpty(strChoiceMonth);
             }
 
             if (string.IsNullOrEmpty(strChoiceMonth))
             {
                 webView.NavigateAndWait(choiceUrl);
-                var match = Regex.Match(webView.GetPageSource(),
+                var match = Regex.Match(await webView.GetPageSourceAsync(),
                     @"<script id=""webpack-monthly-product-data"" type=""application/json"">([\s\S]*?)</script>");
                 if (match.Success)
                 {
