@@ -168,6 +168,10 @@ namespace HumbleKeys.Services
             return orders;
         }
 
+        /// <summary>
+        /// Alters order by adding tpkd entries from the Choice/Month which have not been claimed to the source order to the current order as tkpd virtual entries
+        /// </summary>
+        /// <param name="order"></param>
         public async Task AddChoiceMonthlyGamesAsync(Order order, CancellationToken cancellationToken = default)
         {
             string versionCachePath;
