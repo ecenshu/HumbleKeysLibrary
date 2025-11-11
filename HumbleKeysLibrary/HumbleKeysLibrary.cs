@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Controls;
 using HumbleKeys.Models;
+using HumbleKeys.Patterns;
 using HumbleKeys.Services;
 
 namespace HumbleKeys
@@ -91,6 +92,23 @@ namespace HumbleKeys
             {
                 if (!args.CancelToken.IsCancellationRequested)
                 {
+                    // get game keys utilising chain of responsibility to load from database/cache/humble website
+                    using (var view = PlayniteApi.WebViews.CreateOffscreenView(new WebViewSettings { JavaScriptEnabled = false }))
+                    {
+                        var api = new Services.HumbleKeysAccountClient(view,
+                            new HumbleKeysAccountClientSettings
+                            {
+                                CacheEnabled = Settings.CacheEnabled,
+                                CachePath = $"{PlayniteApi.Paths.ExtensionsDataPath}\\{Id}"
+                            });
+                        var handler = new GetOrderKeysCachedHandler(
+                            new FileSystemCacheStrategy<ICollection<OrderKey>>(api, new FileSystemCacheOptions())
+                            );
+                        handler.SetNext(new GetOrderKeysHumbleHandler(api));
+                        
+                        var orderKeus = handler.Handle();
+                    }
+
                     var ordersAsync = ScrapeOrdersAsync(args.CancelToken);
                     if (!ordersAsync.IsCanceled)
                     {
@@ -133,7 +151,16 @@ namespace HumbleKeys
 
         public async Task<IEnumerable<Order>> ScrapeOrdersAsync(CancellationToken cancellationToken = default)
         {
+            // setup data provider handlers
+            if (Settings.CacheEnabled)
+            {
+                /*var orderHandler = new HumbleStrategy();
+                var cachedOrderHandler = new CachedLibraryKeysHandler();
+                cachedOrderHandler.SetNext(orderHandler);*/
+                //var libraryKeys = orderHandler.Execute();
+            }
             ICollection<Order> orders = new List<Order>();
+            // Get Orders from data repository
             using (var view = PlayniteApi.WebViews.CreateOffscreenView(new WebViewSettings { JavaScriptEnabled = false }))
             {
                 var api = new Services.HumbleKeysAccountClient(view,
@@ -143,10 +170,11 @@ namespace HumbleKeys
                         CachePath = $"{PlayniteApi.Paths.ExtensionsDataPath}\\{Id}"
                     });
                 var keys = await api.GetLibraryKeysAsync(cancellationToken);
-                logger.Trace("ScrapeOrders: Keys Count = " + keys.Count);
+                var keysList = keys.ToList();
+                logger.Trace("ScrapeOrders: Keys Count = " + keysList.Count);
 
                 var ordersCount = 0;
-                foreach (var key in keys)
+                foreach (var key in keysList)
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {

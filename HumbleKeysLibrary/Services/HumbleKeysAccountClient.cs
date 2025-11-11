@@ -12,7 +12,7 @@ using Playnite.SDK.Data;
 
 namespace HumbleKeys.Services
 {
-    public class HumbleKeysAccountClient
+    public class HumbleKeysAccountClient : IDataProvider<OrderKey, Order>, IDataProvider<ICollection<OrderKey>>
     {
         private static readonly ILogger logger = LogManager.GetLogger();
         private readonly IWebView webView;
@@ -93,34 +93,25 @@ namespace HumbleKeys.Services
         }
 
         /// Retrieves all gameKeys associated with the current logged in account
-        internal async Task<List<string>> GetLibraryKeysAsync(CancellationToken token = default)
+        internal async Task<IEnumerable<OrderKey>> GetLibraryKeysAsync(CancellationToken token = default)
         {
-            var keysCacheFilename = $"{localCachePath}\\gamekeys.json";
-            if (preferCache)
-            {
-                // Request may be cached in local filesystem to prevent spamming Humble
-                var cachedData = await GetCacheContentAsync<List<string>>(keysCacheFilename, token);
-                if (cachedData != null)
-                {
-                    return cachedData;
-                }
-            }
+            logger.Info("Fetching library keys from Humble Bundle");
+            var strKeys = await ScrapeLibraryKeys(libraryUrl, @"""gamekeys"":\s*(\[.+\])");
+            var parsedLibraryKeys = Serialization.FromJson<List<OrderKey>>(strKeys);
+            logger.Trace($"Request:{libraryUrl} Content:{Serialization.ToJson(parsedLibraryKeys, true)}");
 
-            logger.Trace("Fetching library keys from Humble Bundle");
-            webView.NavigateAndWait(libraryUrl);
+            return parsedLibraryKeys;
+        }
+
+        private async Task<string> ScrapeLibraryKeys(string url, string dataMatcher)
+        {
+            webView.NavigateAndWait(url);
             var libSource = await webView.GetPageSourceAsync();
-            var match = Regex.Match(libSource, @"""gamekeys"":\s*(\[.+\])");
+            var match = Regex.Match(libSource, dataMatcher);
             if (!match.Success) throw new Exception("User is not authenticated.");
 
             var strKeys = match.Groups[1].Value;
-            logger.Trace(
-                $"Request:{libraryUrl} Content:{Serialization.ToJson(Serialization.FromJson<List<string>>(strKeys), true)}");
-            if (preferCache)
-            {
-                CreateCacheContent(keysCacheFilename, strKeys);
-            }
-
-            return Serialization.FromJson<List<string>>(strKeys);
+            return strKeys;
         }
 
         async Task<string> GetCacheContentAsync(string keysCacheFilename, CancellationToken cancellationToken = default)
@@ -148,7 +139,7 @@ namespace HumbleKeys.Services
             streamWriter.Close();
         }
 
-        internal async Task<ICollection<Order>> GetOrdersAsync(ICollection<string> gameKeys, bool includeChoiceMonths = false, CancellationToken cancellationToken = default)
+        internal async Task<ICollection<Order>> GetOrdersAsync(ICollection<OrderKey> gameKeys, bool includeChoiceMonths = false, CancellationToken cancellationToken = default)
         {
             var orders = new List<Order>();
             var gameKeysList = gameKeys.ToList();
@@ -287,7 +278,7 @@ namespace HumbleKeys.Services
             }
         }
 
-        public async Task<Order> GetOrderAsync(string key, CancellationToken cancellationToken)
+        public async Task<Order> GetOrderAsync(OrderKey key, CancellationToken cancellationToken)
         {
             var orderUri = string.Format(orderUrlMask, key);
             var cacheFileName = $"{localCachePath}/order/{key}.json";
@@ -319,5 +310,56 @@ namespace HumbleKeys.Services
             logger.Trace($"Request:{orderUri} {(cacheHit ? "Cached " : "")}Content:{Serialization.ToJson(order, true)}");
             return order;
         }
+
+        public IEnumerable<Order> GetData(ICollection<OrderKey> keys)
+        {
+            return keys.Select(GetData);
+        }
+
+        public async Task<Order> GetDataAsync(OrderKey key, CancellationToken cancellationToken = default)
+        {
+            return await GetOrderAsync(key, cancellationToken);
+        }
+
+        public Order GetData(OrderKey key)
+        {
+            return GetDataAsync(key, CancellationToken.None).Result;
+        }
+
+        public async Task<IEnumerable<Order>> GetDataAsync(IEnumerable<OrderKey> keys, CancellationToken token)
+        {
+            var orders = new List<Order>();
+            foreach (var key in keys)
+            {
+                orders.Add(await GetOrderAsync(key, token));
+            }
+
+            return orders;
+        }
+
+        public ICollection<OrderKey> GetData()
+        {
+            return GetDataAsync(CancellationToken.None).Result;
+        }
+
+        public async Task<ICollection<OrderKey>> GetDataAsync(CancellationToken token)
+        {
+            return await GetLibraryKeysAsync(token) as ICollection<OrderKey>;
+        }
+    }
+
+    public interface IDataProvider<T, TResult>
+    {
+        IEnumerable<TResult> GetData(ICollection<T> keys);
+        TResult GetData(T key);
+
+        Task<IEnumerable<TResult>> GetDataAsync(IEnumerable<T> keys, CancellationToken token);
+        Task<TResult> GetDataAsync(T key, CancellationToken token);
+    }
+
+    public interface IDataProvider<TResult>
+    {
+        TResult GetData();
+        Task<TResult> GetDataAsync(CancellationToken token);
     }
 }

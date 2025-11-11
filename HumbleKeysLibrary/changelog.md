@@ -1,4 +1,7 @@
 ﻿## What's Changed
+# 0.3.10
+* Added progress bar for library scan, during a scan it will show up on the left bar
+
 # 0.3.9
 * IMPORTANT: Platform field is no longer used by default to store the Redemption Store, but now Source is (helps some metadata plugins properly match games)
 * Added setting: Checkbox to add Key Redemption status Tag (default enabled)
