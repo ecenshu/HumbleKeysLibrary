@@ -6,9 +6,9 @@ namespace HumbleKeys.Models
     {
         string GameKey { get; }
         string Title { get; }
-        Dictionary<string,ContentChoice> ContentChoices { get; }
+        Dictionary<string, IContentChoice> ContentChoices { get; }
         
-        List<string> ChoicesMade { get; }
+        ICollection<string> ChoicesMade { get; }
         
         bool ChoicesRemaining { get; }
     }

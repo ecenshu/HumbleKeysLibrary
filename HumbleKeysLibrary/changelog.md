@@ -1,4 +1,7 @@
 ﻿## What's Changed
+# 0.3.10
+* Local database stores order data, if an order has been completely redeemed, do not contact humble for updates
+
 # 0.3.9
 * IMPORTANT - Platform field is no longer used by default for the Redemption Store (i.e. Steam, GOG, etc.), but now Source is (helps some metadata plugins properly match games)
 * Added dropdown setting to add Redemption Store (e.g. Steam) to either Source (now default), Tag, Category, or Platform (no longer default) field, or None (disabled)

@@ -21,7 +21,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
-    <LangVersion>7.1</LangVersion>
+    <LangVersion>latestmajor</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -33,6 +33,9 @@
     <LangVersion>7.3</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="EaLibrary">
+      <HintPath>..\..\..\..\..\Games\Playnite\Extensions\OriginLibrary_Builtin\EaLibrary.dll</HintPath>
+    </Reference>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
     <Reference Include="System" />
@@ -47,6 +50,16 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ChainHandlers\LibraryKeysHandlers\DbCacheLibraryKeysHandler.cs" />
+    <Compile Include="ChainHandlers\LibraryKeysHandlers\FileCacheLibraryKeysHandler.cs" />
+    <Compile Include="ChainHandlers\LibraryKeysHandlers\LibraryKeysHandler.cs" />
+    <Compile Include="ChainHandlers\LibraryKeysHandlers\RemoteLibraryKeysHandler.cs" />
+    <Compile Include="ChainHandlers\OrderHandlers\DbCacheOrderHandler.cs" />
+    <Compile Include="ChainHandlers\OrderHandlers\FileCacheGetOrderHandler.cs" />
+    <Compile Include="ChainHandlers\IChainHandler.cs" />
+    <Compile Include="ChainHandlers\OrderHandlers\OrderHandlerBase.cs" />
+    <Compile Include="ChainHandlers\OrderHandlers\RemoteOrderHandler.cs" />
+    <Compile Include="ChainHandlers\OrderHandlers\RemoteOrdersHandler.cs" />
     <Compile Include="Extensions\CloneObject.cs" />
     <Compile Include="HumbleKeysLibraryClient.cs" />
     <Compile Include="HumbleKeysLibrary.cs" />
@@ -58,11 +71,34 @@
     <Compile Include="Models\ChoiceMonthV2.cs" />
     <Compile Include="Models\ChoiceMonthV3.cs" />
     <Compile Include="Models\IChoiceMonth.cs" />
+    <Compile Include="Models\IContentChoice.cs" />
+    <Compile Include="Models\IDownload.cs" />
+    <Compile Include="Models\IDownloadStruct.cs" />
+    <Compile Include="Models\IOrder.cs" />
+    <Compile Include="Models\IProduct.cs" />
+    <Compile Include="Models\ISubProduct.cs" />
+    <Compile Include="Models\ITpk.cs" />
+    <Compile Include="Models\ITpkdDict.cs" />
+    <Compile Include="Models\IUrl.cs" />
     <Compile Include="Models\Order.cs" />
+    <Compile Include="Models\OrderExtensions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Services\GameKey\Models\ChoiceMonth.cs" />
+    <Compile Include="Services\HumbleOrderApiRepository.cs" />
+    <Compile Include="Services\HumbleOrderCachedRepository.cs" />
+    <Compile Include="Services\HumbleOrderFileSystemRepository.cs" />
+    <Compile Include="Services\HumbleOrderRepositoryFactory.cs" />
+    <Compile Include="Services\HumbleOrderSqlRepository.cs" />
+    <Compile Include="Services\GameKey\Models\Download.cs" />
+    <Compile Include="Services\GameKey\Models\Order.cs" />
+    <Compile Include="Services\GameKey\Models\Product.cs" />
+    <Compile Include="Services\GameKey\Models\SubProduct.cs" />
     <Compile Include="Services\HumbleKeysAccountClient.cs" />
-    <Compile Include="Services\HumbleKeysAccountClientSettings.cs" />
+    <Compile Include="Services\IHumbleOrdersProvider.cs" />
+    <Compile Include="Services\IFileCacheProvider.cs" />
+    <Compile Include="Services\IHumbleOrderRepository.cs" />
     <Compile Include="Services\IHumbleKeysAccountClientSettings.cs" />
+    <Compile Include="Services\PersistentStoreStatus.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
@@ -90,13 +126,17 @@
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="10.0.3" />
     <PackageReference Include="PlayniteSDK" Version="6.9.0" />
+    <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
+    <PackageReference Include="SQLiteNetExtensions" Version="2.1.0" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="attributions.txt" />
     <Content Include="changelog.md" />
     <Content Include="LICENSE" />
   </ItemGroup>
-  <ItemGroup />
+  <ItemGroup>
+    <Folder Include="Services\GameKey\" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="Gather artifact sources for PEXT creation" AfterTargets="Build">
     <Copy SourceFiles="$(OutputPath)\extension.yaml" DestinationFolder="$(OutputPath)/pext/sources" />

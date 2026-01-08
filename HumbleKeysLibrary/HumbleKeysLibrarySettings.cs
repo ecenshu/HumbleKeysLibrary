@@ -37,7 +37,7 @@ namespace HumbleKeys
         public Guid SourceId { get; set; }      // "Source" field GUID found in Playnite
     }
 
-    public class HumbleKeysLibrarySettings : ObservableObject, ISettings
+    public class HumbleKeysLibrarySettings : ObservableObject, IHumbleKeysAccountClientSettings, ISettings
     {
         private readonly HumbleKeysLibrary plugin;
         private static readonly ILogger logger = LogManager.GetLogger();
@@ -52,6 +52,7 @@ namespace HumbleKeys
         public int TagWithBundleName { get; set; } = (int)TagMethodology.None;
         public int UnredeemableKeyHandling { get; set; } = (int)UnredeemableMethodology.Tag;
         public bool CacheEnabled { get; set; } = false;
+        public string CachePath { get; set; }
 
         [Obsolete("Deprecated, scheduled for deletion: Use TagWithBundleName instead")]
         public string CurrentTagMethodology { get; set; }
