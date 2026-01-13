@@ -10,6 +10,7 @@
       branches: [ "releases/**", "beta/**" ]
       tags:
         - v[0-9]+.[0-9]+.[0-9]+*
+        - [0-9]+.[0-9]+.[0-9]+*
   env:
     # Path to the solution file relative to the root of the project.
     SOLUTION_FILE_PATH: .
@@ -23,7 +24,7 @@
     contents: read
   
   jobs:
-    # if the commit was done as a tag, use the tag as semver if it is newer than current generated version from tags
+    # if the commit was done as a tag, use the tag as semver if it is newer than the current generated version from tags
     # if the commit was done via the releases/v* branch, use the branch name as semver, assumes work is being done to prepare for release and no tag exists for the branch version yet
     # if a commit is done on the release branch with no semver, generate it based on tags in repo
     versioning:
