@@ -43,7 +43,7 @@ namespace HumbleKeys.Services
                 }
                 logger.Info("Cache directories prepared");
             }
-            else
+            /*else
             {
                 File.Delete($"{localCachePath}\\gameKeys.json");
                 foreach (var cachePath in cachePaths)
@@ -58,7 +58,7 @@ namespace HumbleKeys.Services
                     Directory.Delete($"{localCachePath}\\{cachePath}");
                 }
                 logger.Info("Cache cleared");
-            }
+            }*/
         }
 
         public void Login()

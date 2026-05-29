@@ -1,7 +1,10 @@
 ﻿## What's Changed
-# 0.3.10
+# 0.4.1
 * Display a progress bar in the sidebar to convey the status of scraping orders from Humble API
 * Cancelling during scraping is now possible
+
+# 0.4.0
+* Fixed issue where games in the Exclusion List were being re-imported
 
 # 0.3.9
 * IMPORTANT - Platform field is no longer used by default for the Redemption Store (i.e. Steam, GOG, etc.), but now Source is (helps some metadata plugins properly match games)
