@@ -835,6 +835,58 @@ namespace HumbleKeys
             UpdateProgress?.Invoke(null, EventArgs.Empty);
         }
 
+        public override IEnumerable<GameMenuItem> GetGameMenuItems(GetGameMenuItemsArgs args)
+        {
+            if (args.Games.Count != 1) yield break;
+            var game = args.Games[0];
+            if (game.PluginId != Id) yield break;
+
+            var redeemedTag = PlayniteApi.Database.Tags.FirstOrDefault(t => t.Name == REDEEMED_STR);
+            if (redeemedTag == null || game.TagIds == null || !game.TagIds.Contains(redeemedTag.Id)) yield break;
+
+            yield return new GameMenuItem
+            {
+                Description = PlayniteApi.Resources.GetString("LOCHumbleKeysCopyKeyMenuItem"),
+                MenuSection = "Humble Keys",
+                Action = _ => CopyKeyToClipboard(game)
+            };
+        }
+
+        private void CopyKeyToClipboard(Game game)
+        {
+            try
+            {
+                using var sqlRepo = new HumbleOrderSqlRepository(Settings, logger);
+                var orderKeys = sqlRepo.GetLibraryKeys().ToList();
+                var matchingKey = orderKeys.FirstOrDefault(k => game.GameId.EndsWith("_" + k));
+
+                if (matchingKey == null)
+                {
+                    PlayniteApi.Dialogs.ShowMessage(
+                        PlayniteApi.Resources.GetString("LOCHumbleKeysCopyKeyNotInCache"), "Humble Keys");
+                    return;
+                }
+
+                var machineName = game.GameId.Substring(0, game.GameId.Length - matchingKey.Length - 1);
+                var order = sqlRepo.GetOrder(matchingKey);
+                var tpk = order?.tpkd_dict?.all_tpks?.FirstOrDefault(t => t.machine_name == machineName);
+
+                if (tpk?.redeemed_key_val == null)
+                {
+                    PlayniteApi.Dialogs.ShowMessage(
+                        PlayniteApi.Resources.GetString("LOCHumbleKeysCopyKeyNotInCache"), "Humble Keys");
+                    return;
+                }
+
+                System.Windows.Clipboard.SetText(tpk.redeemed_key_val.ToString());
+            }
+            catch (Exception e)
+            {
+                logger.Error(e, "Failed to copy CD key to clipboard");
+                PlayniteApi.Dialogs.ShowErrorMessage(e.Message, "Humble Keys");
+            }
+        }
+
         public override void Dispose()
         {
             _humbleOrderRepository?.Dispose();
