@@ -13,35 +13,42 @@ namespace HumbleKeys.Models
                 public class ContentChoicesContainer
                 {
                     [SerializationPropertyName("choices_made")]
-                    public List<string> ChoicesMade;
+                    public List<string> ChoicesMade { get; set; }
                 }
 
                 [SerializationPropertyName("initial")]
                 public ContentChoicesContainer contentChoicesContainer;
 
-                public int TotalChoices;
+                public int TotalChoices { get; set; }
             }
 
             public class ContentChoiceDataContainer
             {
-                
-                public Dictionary<string,ContentChoice> game_data;
+                public Dictionary<string,IContentChoice> game_data { get; set; }
             }
 
             public string gamekey { get; }
 
             public string title { get; }
             
-            public ContentChoiceDataContainer contentChoiceData;
-            public ContentChoicesMadeContainer contentChoicesMade;
+            public ContentChoiceDataContainer contentChoiceData { get; set; }
+            public ContentChoicesMadeContainer contentChoicesMade { get; set; }
         }
 
-        public ContentChoiceOptions contentChoiceOptions;
+        public ContentChoiceOptions contentChoiceOptions { get; set; }
         public string GameKey => contentChoiceOptions.gamekey;
         public string Title => contentChoiceOptions.title;
-        public Dictionary<string,ContentChoice> ContentChoices => contentChoiceOptions.contentChoiceData.game_data;
+        public Dictionary<string,IContentChoice> ContentChoices
+        {
+            get => contentChoiceOptions.contentChoiceData.game_data;
+            set => contentChoiceOptions.contentChoiceData.game_data = value;
+        }
 
-        public List<string> ChoicesMade => contentChoiceOptions.contentChoicesMade?.contentChoicesContainer?.ChoicesMade ?? new List<string>();
+        public ICollection<string> ChoicesMade
+        {
+            get => contentChoiceOptions.contentChoicesMade?.contentChoicesContainer?.ChoicesMade ?? new List<string>();
+            set => throw new System.NotImplementedException();
+        }
 
         public bool ChoicesRemaining => ChoicesMade.Count == ContentChoices.Count;
     }

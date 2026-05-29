@@ -1,16 +1,23 @@
-﻿using Playnite;
-using Playnite.SDK;
+﻿using Playnite.SDK;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Reflection;
 using System.Windows.Controls;
+using HumbleKeys.ChainHandlers;
+using HumbleKeys.ChainHandlers.LibraryKeysHandlers;
+using HumbleKeys.ChainHandlers.OrderHandlers;
 using HumbleKeys.Models;
 using HumbleKeys.Services;
+using Playnite.SDK.Events;
+using PlayniteExtensions.Common;
 
 namespace HumbleKeys
 {
@@ -27,7 +34,10 @@ namespace HumbleKeys
         private const string REDEEMED_STR = "Key: Redeemed";
         private const string UNREDEEMED_STR = "Key: Unredeemed";
         private const string UNREDEEMABLE_STR = "Key: Unredeemable";
-        private static readonly string[] PAST_TAGS = { REDEEMED_STR, UNREDEEMED_STR, UNREDEEMABLE_STR, "Redeemed", "Unredeemed", "Unredeemable" };
+
+        private static readonly string[] PAST_TAGS =
+            { REDEEMED_STR, UNREDEEMED_STR, UNREDEEMABLE_STR, "Redeemed", "Unredeemed", "Unredeemable" };
+
         private const string HUMBLE_KEYS_SRC_NAME = "Humble Keys";
         private const string HUMBLE_KEYS_PLATFORM_NAME = "Humble Key: ";
         private const string NINTENDO_SWITCH = "nintendo_switch";
@@ -40,10 +50,25 @@ namespace HumbleKeys
         private Platform winPlatform;
         private Platform switchPlatform;
         private readonly KeyInfo humbleKeysSource = new KeyInfo { Name = "Unknown" };
+        private SidebarItem importProgress;
+        private IHumbleOrderRepository _humbleOrderRepository;
         public override string Name => "Humble Keys";
 
-        #endregion
+        private IHumbleOrderRepository HumbleOrderRepository
+        {
+            get
+            {
+                if (_humbleOrderRepository != null) return _humbleOrderRepository;
 
+                var webView = PlayniteApi.WebViews.CreateOffscreenView(new WebViewSettings { JavaScriptEnabled = false });
+
+                _humbleOrderRepository = HumbleOrderRepositoryFactory.Create(webView, Settings, logger);
+                return _humbleOrderRepository;
+            }
+        }
+
+        #endregion
+        
         #region === Accessors ================
 
         private HumbleKeysLibrarySettings Settings { get; set; }
@@ -55,10 +80,13 @@ namespace HumbleKeys
 
         #endregion
 
+        public static event EventHandler UpdateProgress;
+
         public HumbleKeysLibrary(IPlayniteAPI api) : base(api)
         {
             Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true };
-            Settings = new HumbleKeysLibrarySettings(this);
+            var settings = new HumbleKeysLibrarySettings(this);
+            Settings = settings;
         }
 
         public HumbleKeysLibrary(IPlayniteAPI api, HumbleKeysLibrarySettings settings) : base(api)
@@ -69,7 +97,7 @@ namespace HumbleKeys
 
         public override ISettings GetSettings(bool firstRunSettings)
         {
-            return Settings;
+            return Settings as ISettings;
         }
 
         public override UserControl GetSettingsView(bool firstRunSettings)
@@ -77,8 +105,23 @@ namespace HumbleKeys
             return new HumbleKeysLibrarySettingsView();
         }
 
+        public override IEnumerable<SidebarItem> GetSidebarItems()
+        {
+            importProgress = new SidebarItem
+            {
+                ProgressMaximum = 100f,
+                ProgressValue = 0f,
+                Type = SiderbarItemType.Button,
+                Icon = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty, "icon.png"),
+                Title = "Humble Remote Progress",
+                Visible = false
+            };
+            yield return importProgress;
+        }
+
         public override IEnumerable<Game> ImportGames(LibraryImportGamesArgs args)
         {
+
             var importedGames = new List<Game>();
             var removedGames = new List<Game>();
             Exception importError = null;
@@ -95,20 +138,33 @@ namespace HumbleKeys
                     var ordersAsync = ScrapeOrdersAsync(args.CancelToken);
                     if (!ordersAsync.IsCanceled)
                     {
-                        var orders = ordersAsync.GetAwaiter().GetResult();
+                        ordersAsync.Wait(args.CancelToken);
+                        var orders = ordersAsync.Result;
                         // create dictionary indexed by gamekey
                         var indexedOrders = orders.ToDictionary(order => order.gamekey, order => order);
                         var selectedTpkds = SelectTpkds(indexedOrders);
-                        logger.Trace("ImportGames: Selected Tpkds Count = " + selectedTpkds.Count());
-                        var processOrdersAsync = ProcessOrdersAsync(indexedOrders, selectedTpkds, importedGames, removedGames);
+                        var tpkdsList = selectedTpkds.ToList();
+                        logger.Trace("ImportGames: Selected Tpkds Count = " + tpkdsList.Count);
+                        var processOrdersAsync = ProcessOrdersAsync(indexedOrders, tpkdsList, importedGames, removedGames, args.CancelToken);
                         processOrdersAsync.Wait(args.CancelToken);
                     }
                 }
             }
+            catch (OperationCanceledException operationCanceledException)
+            {
+                logger.Trace("Operation Cancelled by user");
+            }
             catch (Exception e)
             {
-                importError = e;
-                logger.Error($"Humble Keys Library: error {e}");
+                if (e.InnerException is NotAuthenticatedException)
+                {
+                    importError = e.InnerException;
+                }
+                else
+                {
+                    importError = e;
+                    logger.Error($"Humble Keys Library: error {e}");
+                }
             }
 
             if (importError != null)
@@ -117,7 +173,7 @@ namespace HumbleKeys
                 PlayniteApi.Notifications.Add(new NotificationMessage(
                     dbImportMessageId,
                     string.Format(PlayniteApi.Resources.GetString("LOCLibraryImportError"), Name) +
-                    System.Environment.NewLine + importError.Message,
+                    Environment.NewLine + importError.Message,
                     NotificationType.Error,
                     () => OpenSettingsView()));
             }
@@ -127,54 +183,82 @@ namespace HumbleKeys
             }
 
             logger.Trace($"ImportGames: Imported {importedGames.Count} games, Removed {removedGames.Count} games");
+            // Resets instance so factory can be reinitialised later
+
+            _humbleOrderRepository = null;
             return importedGames;
         }
 
-        public IEnumerable<Order> ScrapeOrders() => ScrapeOrdersAsync().Result;
-
-        public async Task<IEnumerable<Order>> ScrapeOrdersAsync(CancellationToken cancellationToken = default)
+        private async Task<IEnumerable<string>> GetOrderKeysAsync(CancellationToken cancellationToken = default)
         {
-            ICollection<Order> orders = new List<Order>();
-            using (var view = PlayniteApi.WebViews.CreateOffscreenView(new WebViewSettings { JavaScriptEnabled = false }))
+            return await HumbleOrderRepository.GetLibraryKeysAsync(cancellationToken);
+        }
+
+        private async Task<IOrder> GetOrderAsync(string gameKey, CancellationToken cancellationToken = default)
+        {
+            return await HumbleOrderRepository.GetOrderAsync(gameKey, cancellationToken: cancellationToken);
+            //return await OrderHandler.ExecuteAsync(gameKey, cancellationToken);
+        }
+        
+        public async Task<ICollection<IOrder>> ScrapeOrdersAsync(CancellationToken cancellationToken = default)
+        {
+            var orders = new Collection<IOrder>();
+            // use chain of responsibility to get library keys
+            var orderKeys = await GetOrderKeysAsync(cancellationToken);
+            var orderKeysList = orderKeys?.ToList() ?? new List<string>();
+            
+            if (importProgress != null)
             {
-                var api = new Services.HumbleKeysAccountClient(view,
-                    new HumbleKeysAccountClientSettings
-                    {
-                        CacheEnabled = Settings.CacheEnabled,
-                        CachePath = $"{PlayniteApi.Paths.ExtensionsDataPath}\\{Id}"
-                    });
-                var keys = await api.GetLibraryKeysAsync(cancellationToken);
-                logger.Trace("ScrapeOrders: Keys Count = " + keys.Count);
-
-                var ordersCount = 0;
-                foreach (var key in keys)
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        return orders;
-                    }
-
-                    var order = await api.GetOrderAsync(key, cancellationToken);
-                    await api.AddChoiceMonthlyGamesAsync(order, cancellationToken);
-
-                    orders.Add(order);
-                    ordersCount++;
-                }
-
-                logger.Trace("ScrapeOrders: Orders Count = " + ordersCount);
+                importProgress.ProgressValue = 0f;
+                importProgress.Visible = true;
             }
+
+            var stopwatch = new Stopwatch();
+            for (var i = 0; i < orderKeysList.Count; i++)
+            {
+                if (cancellationToken.IsCancellationRequested) break;
+                    
+                var gameKey = orderKeysList[i];
+                try
+                {
+                    importProgress?.ProgressValue = ((float)i / orderKeysList.Count) * 100;
+
+                    stopwatch.Reset();
+                    stopwatch.Start();
+                    var order = await GetOrderAsync(gameKey, cancellationToken);
+                    stopwatch.Stop();
+                    logger?.Trace($"ScrapeOrdersAsync::GetOrderAsync({gameKey}) completed in {stopwatch.Elapsed.ToString()} ms");    
+                    orders.Add(order);
+                }
+                catch (Exception e)
+                {
+                    logger?.Error(e, e.Message);
+                }
+            }
+
+            if (importProgress != null)
+            {
+                importProgress.Visible = false;
+                importProgress.ProgressValue = 100f;
+            }
+
+            logger.Trace("ScrapeOrders: Orders Count = " + orders.Count);
 
             return orders;
         }
 
-        public IEnumerable<IGrouping<string, Order.TpkdDict.Tpk>> SelectTpkds(Dictionary<string, Order> orders)
+        public IEnumerable<IGrouping<string, ITpk>> SelectTpkds(Dictionary<string, IOrder> orders)
         {
-            return orders.Select(kv => kv.Value)
-                .SelectMany(a => a.tpkd_dict?.all_tpks)
-                .Where(t => t != null
-                            && Settings.keyTypeWhitelist.ContainsKey(t.key_type)
-                            && !string.IsNullOrWhiteSpace(t.gamekey)
-                ).GroupBy(tpk => tpk.gamekey);
+            return orders.Select(kv =>
+                    kv.Value)
+                .SelectMany(a =>
+                    a.tpkd_dict?.all_tpks)
+                .Where(t =>
+                    t != null
+                    && Settings.keyTypeWhitelist.ContainsKey(t.key_type)
+                    && !string.IsNullOrWhiteSpace(t.gamekey)
+                ).GroupBy(tpk =>
+                    tpk.gamekey);
         }
 
         /// <summary>
@@ -185,7 +269,7 @@ namespace HumbleKeys
         /// <param name="tpkds"></param>
         /// <param name="importedGames">List of Games added from orders</param>
         /// <param name="removedGames">List of Games removed from orders due to settings</param>
-        protected async Task ProcessOrdersAsync(Dictionary<string, Order> orders, IEnumerable<IGrouping<string, Order.TpkdDict.Tpk>> tpkds, List<Game> importedGames, List<Game> removedGames, CancellationToken cancellationToken = default)
+        protected async Task ProcessOrdersAsync(Dictionary<string, IOrder> orders, IEnumerable<IGrouping<string, ITpk>> tpkds, List<Game> importedGames, List<Game> removedGames, CancellationToken cancellationToken = default)
         {
             var redeemedTag = PlayniteApi.Database.Tags.Add(REDEEMED_STR);
             var unredeemedTag = PlayniteApi.Database.Tags.Add(UNREDEEMED_STR);
@@ -194,8 +278,13 @@ namespace HumbleKeys
             var tagMethod = (TagMethodology)Settings.TagWithBundleName;
             var unredeemableMethod = (UnredeemableMethodology)Settings.UnredeemableKeyHandling;
 
-            if (winPlatform == null) winPlatform = PlayniteApi.Database.Platforms.FirstOrDefault(platform => platform.SpecificationId == PC_WINDOWS);
-            if (switchPlatform == null) switchPlatform = PlayniteApi.Database.Platforms.FirstOrDefault(platform => platform.SpecificationId == NINTENDO_SWITCH);
+            if (winPlatform == null)
+                winPlatform =
+                    PlayniteApi.Database.Platforms.FirstOrDefault(platform => platform.SpecificationId == PC_WINDOWS);
+            if (switchPlatform == null)
+                switchPlatform =
+                    PlayniteApi.Database.Platforms.FirstOrDefault(platform =>
+                        platform.SpecificationId == NINTENDO_SWITCH);
 
             logger.Trace("ProcessOrders: DB begin update");
             PlayniteApi.Database.BeginBufferUpdate();
@@ -212,13 +301,15 @@ namespace HumbleKeys
                         var isHumbleMonthly = orders[tpkdGroup.Key].product.human_name.Contains("Humble Monthly");
                         if (tagMethod == TagMethodology.All || tagMethod == TagMethodology.Monthly && isHumbleMonthly)
                         {
-                            humbleChoiceTag = PlayniteApi.Database.Tags.Add($"Bundle: {orders[tpkdGroup.Key].product.human_name}");
+                            humbleChoiceTag =
+                                PlayniteApi.Database.Tags.Add($"Bundle: {orders[tpkdGroup.Key].product.human_name}");
                         }
                     }
 
                     var bundleContainsUnredeemableKeys = false;
                     var sourceOrder = orders[tpkdGroup.Key];
-                    if (sourceOrder != null && sourceOrder.product.category != "storefront" && sourceOrder.total_choices > 0 && sourceOrder.product.is_subs_v2_product)
+                    if (sourceOrder != null && sourceOrder.product.category != "storefront" &&
+                        sourceOrder.total_choices > 0 && sourceOrder.product.is_subs_v2_product)
                     {
                         bundleContainsUnredeemableKeys = sourceOrder.choices_remaining == 0;
                     }
@@ -233,7 +324,8 @@ namespace HumbleKeys
                         // for this bundle, get all games from the database that are not in the keys collection for this order
                         var libraryKeysNotInOrder = PlayniteApi.Database.Games
                             .Where(game =>
-                                game.TagIds != null && game.TagIds.Contains(humbleChoiceTag.Id) && gameKeys.Contains(game.GameId))
+                                game.TagIds != null && game.TagIds.Contains(humbleChoiceTag.Id) &&
+                                gameKeys.Contains(game.GameId))
                             .ToList();
                         foreach (var game in libraryKeysNotInOrder)
                         {
@@ -274,14 +366,9 @@ namespace HumbleKeys
                     {
                         var gameId = GetGameId(tpkd);
 
-                        // Check if game is in Exclusion List first
-                        if (PlayniteApi.Database.ImportExclusions[ImportExclusionItem.GetId(gameId, Id)] != null)
-                        {
-                            logger.Debug($"Excluding {tpkd.human_name} {Name} from import.");
-                            continue;
-                        }
-
-                        var alreadyImported = PlayniteApi.Database.Games.FirstOrDefault(game => game.GameId == gameId && game.PluginId == Id);
+                        var alreadyImported =
+                            PlayniteApi.Database.Games.FirstOrDefault(game =>
+                                game.GameId == gameId && game.PluginId == Id);
 
                         if (alreadyImported == null)
                         {
@@ -310,11 +397,13 @@ namespace HumbleKeys
 
                                 if (!tagsUpdated && !otherUpdated)
                                 {
-                                    logger.Trace($"ProcessOrders: No update needed for '{alreadyImported.Name}' with GameId = {alreadyImported.GameId}");
+                                    logger.Trace(
+                                        $"ProcessOrders: No update needed for '{alreadyImported.Name}' with GameId = {alreadyImported.GameId}");
                                     continue;
                                 }
 
-                                if (alreadyImported.TagIds != null && alreadyImported.TagIds.Contains(unredeemableTag.Id))
+                                if (alreadyImported.TagIds != null &&
+                                    alreadyImported.TagIds.Contains(unredeemableTag.Id))
                                 {
                                     switch (unredeemableMethod)
                                     {
@@ -323,10 +412,12 @@ namespace HumbleKeys
                                             PlayniteApi.Database.Games.Update(alreadyImported);
                                             PlayniteApi.Notifications.Add(
                                                 new NotificationMessage("HumbleKeysLibraryUpdate_" + alreadyImported.Id,
-                                                    $"{alreadyImported.Name} is no longer redeemable", NotificationType.Info,
+                                                    $"{alreadyImported.Name} is no longer redeemable",
+                                                    NotificationType.Info,
                                                     () =>
                                                     {
-                                                        if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen)
+                                                        if (PlayniteApi.ApplicationInfo.Mode ==
+                                                            ApplicationMode.Fullscreen)
                                                             return;
                                                         PlayniteApi.MainView.SelectGame(alreadyImported.Id);
                                                     })
@@ -347,15 +438,18 @@ namespace HumbleKeys
                                 else
                                 {
                                     PlayniteApi.Database.Games.Update(alreadyImported);
-                                    logger.Trace($"ProcessOrders: Updated '{alreadyImported.Name}' with GameId = {alreadyImported.GameId}");
+                                    logger.Trace(
+                                        $"ProcessOrders: Updated '{alreadyImported.Name}' with GameId = {alreadyImported.GameId}");
                                     if (tagsUpdated)
                                     {
                                         PlayniteApi.Notifications.Add(
                                             new NotificationMessage("HumbleKeysLibraryUpdate_" + alreadyImported.Id,
-                                                $"Tags Updated for {alreadyImported.Name}: " + GetOrderRedemptionTagState(tpkd), NotificationType.Info,
+                                                $"Tags Updated for {alreadyImported.Name}: " +
+                                                GetOrderRedemptionTagState(tpkd), NotificationType.Info,
                                                 () =>
                                                 {
-                                                    if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen) return;
+                                                    if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen)
+                                                        return;
                                                     PlayniteApi.MainView.SelectGame(alreadyImported.Id);
                                                 })
                                         );
@@ -380,7 +474,7 @@ namespace HumbleKeys
             }
         }
 
-        bool UpdateStoreLinks(ObservableCollection<Link> links, Order.TpkdDict.Tpk tpkd, bool useDispatcher)
+        bool UpdateStoreLinks(ObservableCollection<Link> links, ITpk tpkd, bool useDispatcher)
         {
             var recordChanged = false;
 
@@ -445,7 +539,8 @@ namespace HumbleKeys
                 return true;
             }
 
-            if (!string.IsNullOrEmpty(tpkd.steam_app_id) && existingSteamLink.Url == steamGameLink.Url) return recordChanged;
+            if (!string.IsNullOrEmpty(tpkd.steam_app_id) && existingSteamLink.Url == steamGameLink.Url)
+                return recordChanged;
 
             // steam link url doesn't match expected value
             if (existingSteamLink.Url != steamGameLink.Url)
@@ -460,7 +555,7 @@ namespace HumbleKeys
             return true;
         }
 
-        Game ImportNewGame(Order.TpkdDict.Tpk tpkd, Tag groupTag = null)
+        Game ImportNewGame(ITpk tpkd, Tag groupTag = null)
         {
             var gameInfo = new GameMetadata()
             {
@@ -484,7 +579,8 @@ namespace HumbleKeys
             if (Settings.AddKeyStatus)
             {
                 // add tag reflecting redemption status
-                gameInfo.Tags = new HashSet<MetadataProperty> { new MetadataNameProperty(GetOrderRedemptionTagState(tpkd)) };
+                gameInfo.Tags = new HashSet<MetadataProperty>
+                    { new MetadataNameProperty(GetOrderRedemptionTagState(tpkd)) };
             }
 
             if (Settings.AddLinks)
@@ -523,7 +619,7 @@ namespace HumbleKeys
         // If a game is expired, add tag 'Key: Unredeemable'
         // If a game had been redeemed since last added to Playnite, remove the tag 'Key: Unredeemed' and add the tag 'Key: Redeemed'
         // returns whether tags were updated or not
-        bool UpdateRedemptionStatus(Game existingGame, Order.TpkdDict.Tpk tpkd, Tag groupTag = null)
+        bool UpdateRedemptionStatus(Game existingGame, ITpk tpkd, Tag groupTag = null)
         {
             var recordChanged = false;
             if (existingGame == null)
@@ -549,7 +645,9 @@ namespace HumbleKeys
             if (!Settings.AddKeyStatus) return recordChanged;
 
             // process tags on existingGame only if there was a change in tag status
-            var existingRedemptionTagIds = existingGame.Tags?.Where(t => PAST_TAGS.Contains(t.Name)).ToList().Select(tag => tag.Id) ?? Enumerable.Empty<Guid>();
+            var existingRedemptionTagIds =
+                existingGame.Tags?.Where(t => PAST_TAGS.Contains(t.Name)).ToList().Select(tag => tag.Id) ??
+                Enumerable.Empty<Guid>();
 
             // This creates a new Tag in the Tag Database if it doesn't already exist for 'Tag: Redeemed'
             var tagIds = existingRedemptionTagIds.ToList();
@@ -576,7 +674,7 @@ namespace HumbleKeys
 
         // Add Platform if needed
         // returns whether it was updated or not 
-        bool UpdatePlatform(Game game, Order.TpkdDict.Tpk tpkd)
+        bool UpdatePlatform(Game game, ITpk tpkd)
         {
             var recordChanged = false;
 
@@ -612,7 +710,7 @@ namespace HumbleKeys
 
         // Add Redemption Store if needed
         // returns whether it was updated or not
-        bool UpdateRedemptionStore(Game game, Order.TpkdDict.Tpk tpkd)
+        bool UpdateRedemptionStore(Game game, ITpk tpkd)
         {
             if (Settings.RedemptionStore == (int)RedemptionStoreType.None) return false;
             var recordChanged = false;
@@ -630,7 +728,8 @@ namespace HumbleKeys
 
                     break;
                 case (int)RedemptionStoreType.Tag:
-                    var newTag = PlayniteApi.Database.Tags.FirstOrDefault(tag => tag.Name == newName) ?? PlayniteApi.Database.Tags.Add(newName);
+                    var newTag = PlayniteApi.Database.Tags.FirstOrDefault(tag => tag.Name == newName) ??
+                                 PlayniteApi.Database.Tags.Add(newName);
                     EnsureTagList(game);
 
                     if (!game.TagIds.Contains(newTag.Id))
@@ -641,7 +740,8 @@ namespace HumbleKeys
 
                     break;
                 case (int)RedemptionStoreType.Category:
-                    var newCat = PlayniteApi.Database.Categories.FirstOrDefault(category => category.Name == newName) ?? PlayniteApi.Database.Categories.Add(newName);
+                    var newCat = PlayniteApi.Database.Categories.FirstOrDefault(category => category.Name == newName) ??
+                                 PlayniteApi.Database.Categories.Add(newName);
                     EnsureCategoryList(game);
 
                     if (!game.CategoryIds.Contains(newCat.Id))
@@ -652,7 +752,8 @@ namespace HumbleKeys
 
                     break;
                 case (int)RedemptionStoreType.Platform:
-                    var newPlat = PlayniteApi.Database.Platforms.FirstOrDefault(platform => platform.Name == newName) ?? PlayniteApi.Database.Platforms.Add(newName);
+                    var newPlat = PlayniteApi.Database.Platforms.FirstOrDefault(platform => platform.Name == newName) ??
+                                  PlayniteApi.Database.Platforms.Add(newName);
 
                     EnsurePlatformList(game);
                     if (!game.PlatformIds.Contains(newPlat.Id))
@@ -673,7 +774,8 @@ namespace HumbleKeys
             {
                 if (needSourceId && keyInfo.SourceId == Guid.Empty)
                 {
-                    var source = PlayniteApi.Database.Sources.FirstOrDefault(src => src.Name == keyInfo.SourceName) ?? PlayniteApi.Database.Sources.Add(new MetadataNameProperty(keyInfo.SourceName));
+                    var source = PlayniteApi.Database.Sources.FirstOrDefault(src => src.Name == keyInfo.SourceName) ??
+                                 PlayniteApi.Database.Sources.Add(new MetadataNameProperty(keyInfo.SourceName));
                     keyInfo.SourceId = source.Id;
                 }
 
@@ -683,7 +785,8 @@ namespace HumbleKeys
             {
                 if (needSourceId && humbleKeysSource.SourceId == Guid.Empty)
                 {
-                    var source = PlayniteApi.Database.Sources.FirstOrDefault(src => src.Name == HUMBLE_KEYS_SRC_NAME) ?? PlayniteApi.Database.Sources.Add(new MetadataNameProperty(HUMBLE_KEYS_SRC_NAME));
+                    var source = PlayniteApi.Database.Sources.FirstOrDefault(src => src.Name == HUMBLE_KEYS_SRC_NAME) ??
+                                 PlayniteApi.Database.Sources.Add(new MetadataNameProperty(HUMBLE_KEYS_SRC_NAME));
                     humbleKeysSource.SourceId = source.Id;
                 }
 
@@ -693,13 +796,18 @@ namespace HumbleKeys
 
         #region === Helper Methods ============
 
-        private static string GetGameId(Order.TpkdDict.Tpk tpk) => $"{tpk.machine_name}_{tpk.gamekey}";
-        private static Link MakeLink(string gameKey) => new Link("Humble Purchase URL", string.Format(humblePurchaseUrlMask, gameKey));
-        private static Link MakeSteamLink(string gameKey) => new Link("Steam", string.Format(steamGameUrlMask, gameKey));
-        private static bool IsKeyNull(Order.TpkdDict.Tpk t) => t?.redeemed_key_val == null;
-        private static bool IsKeyPresent(Order.TpkdDict.Tpk t) => !IsKeyNull(t);
+        private static string GetGameId(ITpk tpk) => $"{tpk.machine_name}_{tpk.gamekey}";
 
-        private static string GetOrderRedemptionTagState(Order.TpkdDict.Tpk t)
+        private static Link MakeLink(string gameKey) =>
+            new Link("Humble Purchase URL", string.Format(humblePurchaseUrlMask, gameKey));
+
+        private static Link MakeSteamLink(string gameKey) =>
+            new Link("Steam", string.Format(steamGameUrlMask, gameKey));
+
+        private static bool IsKeyNull(ITpk t) => t?.redeemed_key_val == null;
+        private static bool IsKeyPresent(ITpk t) => !IsKeyNull(t);
+
+        private static string GetOrderRedemptionTagState(ITpk t)
         {
             if (t.is_expired) return UNREDEEMABLE_STR;
             return IsKeyPresent(t) ? REDEEMED_STR : UNREDEEMED_STR;
@@ -721,5 +829,16 @@ namespace HumbleKeys
         }
 
         #endregion
+
+        private static void OnUpdateProgress(float  progress = 100f)
+        {
+            UpdateProgress?.Invoke(null, EventArgs.Empty);
+        }
+
+        public override void Dispose()
+        {
+            _humbleOrderRepository?.Dispose();
+            base.Dispose();
+        }
     }
 }
