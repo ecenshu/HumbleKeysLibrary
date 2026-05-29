@@ -3,6 +3,7 @@ using HumbleKeys.Extensions;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using HumbleKeys.Services;
 using Playnite.SDK.Data;
 
@@ -135,6 +136,12 @@ namespace HumbleKeys
                     savedSettings.CurrentUnredeemableMethodology = null;
 
                     // Save, otherwise values won't stick
+                    plugin.SavePluginSettings(savedSettings);
+                }
+                
+                if (string.IsNullOrEmpty(savedSettings.CachePath))
+                {
+                    savedSettings.CachePath = Path.Combine(plugin.PlayniteApi.Paths.ExtensionsDataPath, plugin.Id.ToString());
                     plugin.SavePluginSettings(savedSettings);
                 }
                 // End settings migration section
