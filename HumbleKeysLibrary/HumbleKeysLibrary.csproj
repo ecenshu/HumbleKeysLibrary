@@ -92,12 +92,9 @@
     <PackageReference Include="PlayniteSDK" Version="6.14.0" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include=".github\workflows\generate_release_artifacts.yml" />
-    <Content Include=".github\workflows\msbuild.yml" />
     <Content Include="attributions.txt" />
     <Content Include="changelog.md" />
     <Content Include="LICENSE" />
-    <Content Include="README.md" />
   </ItemGroup>
   <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
