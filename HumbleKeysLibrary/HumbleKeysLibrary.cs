@@ -1,4 +1,5 @@
-﻿using Playnite.SDK;
+﻿using Playnite;
+using Playnite.SDK;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
@@ -272,6 +273,13 @@ namespace HumbleKeys
                     foreach (var tpkd in groupEntries)
                     {
                         var gameId = GetGameId(tpkd);
+
+                        // Check if game is in Exclusion List first
+                        if (PlayniteApi.Database.ImportExclusions[ImportExclusionItem.GetId(gameId, Id)] != null)
+                        {
+                            logger.Debug($"Excluding {tpkd.human_name} {Name} from import.");
+                            continue;
+                        }
 
                         var alreadyImported = PlayniteApi.Database.Games.FirstOrDefault(game => game.GameId == gameId && game.PluginId == Id);
 
