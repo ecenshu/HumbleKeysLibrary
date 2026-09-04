@@ -89,13 +89,11 @@ namespace HumbleKeys.Services
 
         public bool Update(ITpk record)
         {
-            if (record is Models.Order.TpkdDict.Tpk)
-            {
-                // load record by primary key to update
-                var tpk = GetTpkById(new Order.TpkdDict.Tpk.TpkIdentifier
-                    { machine_name = record.machine_name, gamekey = record.gamekey });
-            }
-            return connection.Update(record, typeof(Order.TpkdDict.Tpk)) > 0;
+            var existing = GetTpkById(new Order.TpkdDict.Tpk.TpkIdentifier
+                { machine_name = record.machine_name, gamekey = record.gamekey });
+            if (existing == null) return false;
+            existing.redeemed_key_val = record.redeemed_key_val;
+            return connection.Update(existing) > 0;
         }
 
 
