@@ -48,7 +48,7 @@ namespace HumbleKeys.Services.GameKey.Models
                     visible = tpk.visible;
                 }
 
-                [PrimaryKey] [JsonIgnore] public int id { get; set; }
+                [PrimaryKey] [JsonIgnore] [AutoIncrement] public int id { get; set; }
 
                 [Indexed(Name = "TpkSecondaryKey", Order = 2, Unique = true)]
                 public string machine_name { get; set; }
@@ -130,7 +130,7 @@ namespace HumbleKeys.Services.GameKey.Models
                 this.persisted_all_tpks = new List<Tpk>();
                 for (var i = 0; i < persisted_all_tpks.all_tpks.Count; i++)
                 {
-                    this.persisted_all_tpks.Add(new Tpk(persisted_all_tpks.all_tpks.ElementAt(i)) {id = i});
+                    this.persisted_all_tpks.Add(new Tpk(persisted_all_tpks.all_tpks.ElementAt(i)));
                 }
             }
 

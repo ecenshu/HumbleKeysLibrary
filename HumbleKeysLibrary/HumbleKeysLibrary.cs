@@ -84,14 +84,14 @@ namespace HumbleKeys
 
         public HumbleKeysLibrary(IPlayniteAPI api) : base(api)
         {
-            Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true };
+            Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true, HasSettings = true };
             var settings = new HumbleKeysLibrarySettings(this);
             Settings = settings;
         }
 
         public HumbleKeysLibrary(IPlayniteAPI api, HumbleKeysLibrarySettings settings) : base(api)
         {
-            Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true };
+            Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true, HasSettings = true };
             Settings = settings;
         }
 
@@ -102,6 +102,8 @@ namespace HumbleKeys
 
         public override UserControl GetSettingsView(bool firstRunSettings)
         {
+            var playniteDescription = this.PlayniteApi.Resources.GetString("LOCHumbleKeysCopyKeyMenuItem");
+            var Description = ResourceProvider.GetString("LOCHumbleKeysCopyKeyMenuItem");
             return new HumbleKeysLibrarySettingsView();
         }
 
@@ -172,7 +174,7 @@ namespace HumbleKeys
                 logger.Error($"Humble Keys Library: importError {dbImportMessageId}");
                 PlayniteApi.Notifications.Add(new NotificationMessage(
                     dbImportMessageId,
-                    string.Format(PlayniteApi.Resources.GetString("LOCLibraryImportError"), Name) +
+                    string.Format(ResourceProvider.GetString("LOCLibraryImportError"), Name) +
                     Environment.NewLine + importError.Message,
                     NotificationType.Error,
                     () => OpenSettingsView()));
@@ -569,6 +571,7 @@ namespace HumbleKeys
                 },
                 Tags = new HashSet<MetadataProperty>(),
                 Links = new List<Link>(),
+                
             };
 
             if (Settings.RedemptionStore != (int)RedemptionStoreType.Source)
