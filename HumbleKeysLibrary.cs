@@ -46,6 +46,12 @@ namespace HumbleKeys
         public override LibraryClient Client { get; } = new HumbleKeysLibraryClient();
         #endregion
 
+        public HumbleKeysLibrary(IPlayniteAPI api, HumbleKeysLibrarySettings settings = null) : base(api)
+        {
+            Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true };
+            Settings = settings;
+        }
+        
         public HumbleKeysLibrary(IPlayniteAPI api) : base(api)
         {
             Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true };
