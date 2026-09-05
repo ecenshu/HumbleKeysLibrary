@@ -57,7 +57,13 @@
     </ItemGroup>
     <ItemGroup>
         <Compile Include="RepositoryTests.cs" />
+        <Compile Include="ExtensionTests.cs" />
+        <Compile Include="LibraryTests.cs" />
         <Compile Include="Properties\AssemblyInfo.cs"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="NSubstitute" Version="6.0.0" />
+        <PackageReference Include="NUnit" Version="4.6.1" />
     </ItemGroup>
     <ItemGroup>
       <ProjectReference Include="..\HumbleKeysLibrary\HumbleKeysLibrary.csproj">

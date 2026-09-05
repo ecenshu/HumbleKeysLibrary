@@ -14,12 +14,6 @@ namespace HumbleKeysLibraryTest
     public class RepositoryTests
     {
         [Test]
-        public void InitialiseTest()
-        {
-            Assert.True(true);
-        }
-
-        [Test]
         public void GetUnAuthenticatedTest()
         {
             var api = Substitute.For<IPlayniteAPI>();

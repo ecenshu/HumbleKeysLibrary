@@ -33,9 +33,6 @@
     <LangVersion>7.3</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="EaLibrary">
-      <HintPath>..\..\..\..\..\Games\Playnite\Extensions\OriginLibrary_Builtin\EaLibrary.dll</HintPath>
-    </Reference>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
     <Reference Include="System" />
@@ -62,6 +59,7 @@
     <Compile Include="ChainHandlers\OrderHandlers\RemoteOrderHandler.cs" />
     <Compile Include="ChainHandlers\OrderHandlers\RemoteOrdersHandler.cs" />
     <Compile Include="Extensions\CloneObject.cs" />
+    <Compile Include="Extensions\TpkExtensions.cs" />
     <Compile Include="HumbleKeysLibraryClient.cs" />
     <Compile Include="HumbleKeysLibrary.cs" />
     <Compile Include="HumbleKeysLibrarySettings.cs" />
@@ -127,12 +125,14 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="10.0.3" />
-    <PackageReference Include="PlayniteSDK" Version="6.14.0" />
+    <PackageReference Include="PlayniteSDK" Version="6.16.0" />
     <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
     <PackageReference Include="SQLiteNetExtensions" Version="2.1.0" />
     <PackageReference Include="System.ValueTuple" Version="4.6.2" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include=".github\workflows\generate_release_artifacts.yml" />
+    <Content Include=".github\workflows\msbuild.yml" />
     <Content Include="attributions.txt" />
     <Content Include="changelog.md" />
     <Content Include="LICENSE" />

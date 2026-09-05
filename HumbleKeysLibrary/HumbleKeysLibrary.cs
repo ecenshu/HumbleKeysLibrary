@@ -10,14 +10,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Reflection;
+using System.Security.Authentication;
 using System.Windows.Controls;
-using HumbleKeys.ChainHandlers;
-using HumbleKeys.ChainHandlers.LibraryKeysHandlers;
-using HumbleKeys.ChainHandlers.OrderHandlers;
+using HumbleKeys.Extensions;
 using HumbleKeys.Models;
 using HumbleKeys.Services;
-using Playnite.SDK.Events;
-using PlayniteExtensions.Common;
 
 namespace HumbleKeys
 {
@@ -89,9 +86,9 @@ namespace HumbleKeys
             Settings = settings;
         }
 
-        public HumbleKeysLibrary(IPlayniteAPI api, HumbleKeysLibrarySettings settings) : base(api)
+        public HumbleKeysLibrary(IPlayniteAPI api, HumbleKeysLibrarySettings settings = null) : base(api)
         {
-            Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true, HasSettings = true };
+            Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true, HasSettings = (settings != null) };
             Settings = settings;
         }
 
@@ -158,7 +155,7 @@ namespace HumbleKeys
             }
             catch (Exception e)
             {
-                if (e.InnerException is NotAuthenticatedException)
+                if (e.InnerException is AuthenticationException)
                 {
                     importError = e.InnerException;
                 }
@@ -223,7 +220,7 @@ namespace HumbleKeys
                 var gameKey = orderKeysList[i];
                 try
                 {
-                    importProgress?.ProgressValue = ((float)i / orderKeysList.Count) * 100;
+                    if (importProgress != null) importProgress.ProgressValue = ((float)i / orderKeysList.Count) * 100;
 
                     stopwatch.Reset();
                     stopwatch.Start();
@@ -500,30 +497,11 @@ namespace HumbleKeys
                 }
             }
 
-            if (tpkd.key_type != "steam") return recordChanged;
+            if (tpkd?.key_type != "steam") return recordChanged;
 
-            Link steamGameLink;
-            string humanName = string.Empty;
-            if (!string.IsNullOrEmpty(tpkd.steam_app_id))
-            {
-                steamGameLink = MakeSteamLink(tpkd.steam_app_id);
-            }
-            else
-            {
-                humanName = tpkd.human_name;
-                steamGameLink = new Link("Steam", string.Format(steamSearchUrlMask, humanName.Replace(" ", "%2B")));
-            }
-
-            if (humanName.EndsWith(" Steam"))
-            {
-                humanName = humanName.Remove(humanName.LastIndexOf(" Steam", StringComparison.Ordinal));
-            }
-
-            if (humanName.EndsWith(" DLC"))
-            {
-                humanName = humanName.Remove(humanName.LastIndexOf(" DLC", StringComparison.Ordinal));
-            }
-
+            var steamGameLink = tpkd.MakeSteamLink();
+            if (steamGameLink == null) return false;
+            
             var steamLinks = links.Where((link1, i) => link1.Name == "Steam");
             var steamLinksList = steamLinks.ToList();
             var existingSteamLink = steamLinksList.FirstOrDefault();

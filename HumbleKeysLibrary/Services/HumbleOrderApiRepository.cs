@@ -1,9 +1,9 @@
 ﻿using System.Collections.Generic;
+using System.Security.Authentication;
 using System.Threading;
 using System.Threading.Tasks;
 using HumbleKeys.Models;
 using HumbleKeys.Services.GameKey.Models;
-using PlayniteExtensions.Common;
 using Order = HumbleKeys.Services.GameKey.Models.Order;
 
 namespace HumbleKeys.Services
@@ -17,7 +17,7 @@ namespace HumbleKeys.Services
             this.api = api;
             if (!api.GetIsUserLoggedIn())
             {
-                throw new NotAuthenticatedException();
+                throw new AuthenticationException();
             }
         }
         public void Dispose()
