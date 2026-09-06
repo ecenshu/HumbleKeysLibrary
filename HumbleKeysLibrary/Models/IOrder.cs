@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace HumbleKeys.Models
@@ -14,7 +14,7 @@ namespace HumbleKeys.Models
 
         string uid { get; set; }
 
-        //string created {get;set;}
+        DateTime created { get; set; }
         ICollection<ISubProduct> subproducts { get; set; }
         ITpkdDict tpkd_dict { get; set; }
         ICollection<string> path_ids { get; set; }

@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
 
 using System.Linq;
 using Newtonsoft.Json;
@@ -105,6 +106,9 @@ namespace HumbleKeys.Models
                 public string library_family_name { get; set; }
                 public string steam_app_id { get; set; }
                 public bool is_expired { get; set; }
+                [JsonProperty("expiration_date|datetime")]
+                public DateTime expiration_date { get; set; }
+                public int num_days_until_expired { get; set; }
                 public Newtonsoft.Json.Linq.JToken redeemed_key_val { get; set; }
                 public bool is_virtual { get; set; }
             }
@@ -136,6 +140,7 @@ namespace HumbleKeys.Models
         // v3 always 0?
         // v2 total_choices - number of games redeemed
         public int choices_remaining { get; set; }
+        public DateTime created { get; set; }
 
         public bool ContainsProcessableKeyStatuses()
         {
@@ -208,6 +213,11 @@ namespace HumbleKeys.Models
                 if (tpkd_dict == null) return false;
                 return !tpkd_dict.all_tpks.Any(tpk => tpk.redeemed_key_val is null);
             }
+        }
+
+        public Order()
+        {
+            subproducts = new List<ISubProduct>();
         }
 
         [JsonConstructor]

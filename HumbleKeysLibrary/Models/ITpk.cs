@@ -1,4 +1,6 @@
-﻿namespace HumbleKeys.Models
+using System;
+
+namespace HumbleKeys.Models
 {
     public interface ITpk
     {
@@ -14,6 +16,8 @@
         string library_family_name { get; set; }
         string steam_app_id { get; set; }
         bool is_expired { get; set; }
+        DateTime expiration_date { get; set; }
+        int num_days_until_expired { get; set; }
         Newtonsoft.Json.Linq.JToken redeemed_key_val { get; set; }
         bool is_virtual { get; set; }
     }

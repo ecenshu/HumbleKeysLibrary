@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using HumbleKeys.Services.GameKey.Models;
@@ -61,11 +61,12 @@ namespace HumbleKeys.Models
 
             return new T
             {
+                created = order.created,
                 choices_remaining = order.choices_remaining,
                 gamekey = order.gamekey,
                 path_ids = order.path_ids,
                 product = order.product,
-                persisted_path_ids = order.path_ids.Select((s, index) => new Services.GameKey.Models.Order.PathIds { elementNumber = index, gamekey = order.gamekey, value = s }).ToList(),
+                persisted_path_ids = order.path_ids?.Select((s, index) => new Services.GameKey.Models.Order.PathIds { elementNumber = index, gamekey = order.gamekey, value = s }).ToList(),
                 persisted_product = order.product.MapTo<Product>(order.gamekey),
                 persisted_tpkd_dict = order.tpkd_dict.MapTo<Services.GameKey.Models.Order.TpkdDict>(order.gamekey)
             };
@@ -114,7 +115,9 @@ namespace HumbleKeys.Models
                 library_family_name = tpk.library_family_name,
                 redeemed_key_val = tpk.redeemed_key_val,
                 steam_app_id = tpk.steam_app_id,
-                visible = tpk.visible
+                visible = tpk.visible,
+                expiration_date = tpk.expiration_date,
+                num_days_until_expired = tpk.num_days_until_expired
             };
         }
     }

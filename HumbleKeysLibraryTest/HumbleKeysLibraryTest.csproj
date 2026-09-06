@@ -59,6 +59,8 @@
         <Compile Include="RepositoryTests.cs" />
         <Compile Include="ExtensionTests.cs" />
         <Compile Include="LibraryTests.cs" />
+        <Compile Include="ExpirableKeyTests.cs" />
+        <Compile Include="DateAddedMetadataTests.cs" />
         <Compile Include="Properties\AssemblyInfo.cs"/>
     </ItemGroup>
     <ItemGroup>

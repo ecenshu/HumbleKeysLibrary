@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -120,7 +120,10 @@
     <Resource Include="Localization\en-US.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Localization\en_US.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
     </Resource>
   </ItemGroup>
   <ItemGroup>
@@ -141,11 +144,21 @@
     <Folder Include="Services\GameKey\" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Target Name="CopyLocalization" AfterTargets="Build">
+    <ItemGroup>
+      <LocalizationFiles Include="Localization\*.xaml" />
+    </ItemGroup>
+    <Copy SourceFiles="@(LocalizationFiles)" DestinationFolder="$(OutputPath)\Localization" SkipUnchangedFiles="true" />
+  </Target>
   <Target Name="Gather artifact sources for PEXT creation" AfterTargets="Build">
+    <ItemGroup>
+      <LocalizationFiles Include="Localization\*.xaml" />
+    </ItemGroup>
     <Copy SourceFiles="$(OutputPath)\extension.yaml" DestinationFolder="$(OutputPath)/pext/sources" />
     <Copy SourceFiles="$(OutputPath)\$(AssemblyName).dll" DestinationFolder="$(OutputPath)/pext/sources" />
     <Copy SourceFiles="$(OutputPath)\$(AssemblyName).pdb" DestinationFolder="$(OutputPath)/pext/sources" />
     <Copy SourceFiles="$(OutputPath)\icon.png" DestinationFolder="$(OutputPath)/pext/sources" />
+    <Copy SourceFiles="@(LocalizationFiles)" DestinationFolder="$(OutputPath)/pext/sources/Localization" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="Create PEXT" AfterTargets="Gather artifact sources for PEXT creation">
     <ZipDirectory DestinationFile="$(OutputPath)/pext/$(AssemblyName).pext" SourceDirectory="$(OutputPath)/pext/sources" Overwrite="true" />

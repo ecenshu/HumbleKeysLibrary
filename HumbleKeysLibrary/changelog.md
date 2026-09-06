@@ -1,7 +1,16 @@
-﻿## What's Changed
+## What's Changed
 # 0.4.1
 * Display a progress bar in the sidebar to convey the status of scraping orders from Humble API
 * Cancelling during scraping is now possible
+* [OPTIONAL] Keys that are expirable will be tagged with 'Key: Expirable' and when detected during a scan will add a notification of how long until the key expires
+* [OPTIONAL] Keys that have been redeemed can be checked against the Steam Library plugin to see if the redeemed key has actually been redeemed, if it hasn't a notification will display during a library scan
+* Any game keys that have not been redeemed and sold out will now display a notification during a library scan
+* Game Added date set to Humble purchase/order date to maintain sort order
+* [Bugfix] Game entries with empty notes were not getting the expiry note added
+* Refined key status taxonomy into two orthogonal dimensions:
+  * Base States: 'Key: Redeemed' (key revealed & in Steam library), 'Key: Unredeemed' (key revealed & not in Steam), 'Key: Claimed' (purchased/claimed into Humble account, key not yet revealed), and 'Key: Unclaimed' (virtual Choice bundle option, no key revealed).
+  * Lifecycle Modifiers: 'Key: Expirable' (for active expirable keys) and 'Key: Unredeemable' (for expired keys or exhausted choices) applied in conjunction with the base state.
+* Unredeemable games that already exist in the Steam library receive both 'Key: Redeemed' and 'Key: Unredeemable', preventing them from being deleted or flagged as no longer redeemable.
 
 # 0.4.0
 * Fixed issue where games in the Exclusion List were being re-imported

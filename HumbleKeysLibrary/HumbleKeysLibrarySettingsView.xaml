@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="HumbleKeys.HumbleKeysLibrarySettingsView"
+<UserControl x:Class="HumbleKeys.HumbleKeysLibrarySettingsView"
 			 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
 			 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 			 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -118,6 +118,16 @@
                     <ComboBoxItem Tag="1" ToolTip="Delete games that cannot be redeemed">Delete</ComboBoxItem>
                 </ComboBox>
 			</Grid>
+			<CheckBox Margin="0,10,0,0"
+			          IsChecked="{Binding ExpirableNotification}"
+			          Content="Notify about expiring keys"
+			          Name="ExpirableNotification"
+			          ToolTip="When checked, during a library scan, it will try and find keys that are unredeemed but have an expiry date on the key redemption"/>
+			<CheckBox Margin="0,10,0,0"
+			          IsChecked="{Binding UnclaimedGameNotification}"
+			          Content="Notify about claimed keys that doesn't exist in the Steam Library"
+			          Name="UnclaimedGameNotification"
+			          ToolTip="When checked, during a library scan, it will try and find keys that have been redeemed but does not exist in the Steam Library"/>
 			<CheckBox Margin="0,10,0,0"
 						IsChecked="{Binding CacheEnabled}"
 						Content="Enable Cache"

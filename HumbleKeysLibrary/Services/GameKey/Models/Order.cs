@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using HumbleKeys.Models;
@@ -46,6 +46,8 @@ namespace HumbleKeys.Services.GameKey.Models
                     redeemed_key_val = tpk.redeemed_key_val;
                     steam_app_id = tpk.steam_app_id;
                     visible = tpk.visible;
+                    expiration_date = tpk.expiration_date;
+                    num_days_until_expired = tpk.num_days_until_expired;
                 }
 
                 [PrimaryKey] [JsonIgnore] [AutoIncrement] public int id { get; set; }
@@ -68,6 +70,8 @@ namespace HumbleKeys.Services.GameKey.Models
                 public string library_family_name { get; set; }
                 public string steam_app_id { get; set; }
                 public bool is_expired { get; set; }
+                public DateTime expiration_date { get; set; }
+                public int num_days_until_expired { get; set; }
 
                 [Ignore] public JToken redeemed_key_val { get; set; }
 
@@ -99,6 +103,8 @@ namespace HumbleKeys.Services.GameKey.Models
                     redeemed_key_val = updatedValues.redeemed_key_val;
                     steam_app_id = updatedValues.steam_app_id;
                     visible = updatedValues.visible;
+                    expiration_date = updatedValues.expiration_date;
+                    num_days_until_expired = updatedValues.num_days_until_expired;
                 }
             }
 
@@ -286,6 +292,7 @@ namespace HumbleKeys.Services.GameKey.Models
 
         public int total_choices { get; set; }
         public int choices_remaining { get; set; }
+        public DateTime created { get; set; }
 
         [Table("PathIds")]
         public record PathIds
@@ -312,6 +319,7 @@ namespace HumbleKeys.Services.GameKey.Models
         public Order(IOrder order)
         {
             gamekey = order.gamekey;
+            created = order.created;
             persisted_product = new Product(order, order.product);
             uid = order.uid;
             total_choices = order.total_choices;
@@ -399,6 +407,7 @@ namespace HumbleKeys.Services.GameKey.Models
         {
             // Update datatype values
             gamekey = newOrder.gamekey;
+            created = newOrder.created;
             total_choices = newOrder.total_choices;
             choices_remaining = newOrder.choices_remaining;
             uid = newOrder.uid;

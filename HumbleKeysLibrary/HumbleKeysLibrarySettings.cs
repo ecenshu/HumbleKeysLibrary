@@ -1,4 +1,4 @@
-﻿using Playnite.SDK;
+using Playnite.SDK;
 using HumbleKeys.Extensions;
 using System;
 using System.Collections.Generic;
@@ -52,6 +52,8 @@ namespace HumbleKeys
         public bool ImportChoiceKeys { get; set; } = false;
         public int TagWithBundleName { get; set; } = (int)TagMethodology.None;
         public int UnredeemableKeyHandling { get; set; } = (int)UnredeemableMethodology.Tag;
+        public bool ExpirableNotification { get; set; } = false;
+        public bool UnclaimedGameNotification { get; set; } = false;
         public bool CacheEnabled { get; set; } = false;
         public string CachePath { get; set; }
 

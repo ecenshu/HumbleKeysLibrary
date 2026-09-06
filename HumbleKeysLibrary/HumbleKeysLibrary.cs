@@ -1,20 +1,23 @@
-﻿using Playnite.SDK;
+using Playnite.SDK;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Reflection;
 using System.Security.Authentication;
+using System.Windows;
 using System.Windows.Controls;
 using HumbleKeys.Extensions;
 using HumbleKeys.Models;
 using HumbleKeys.Services;
+using Order = HumbleKeys.Services.GameKey.Models.Order;
 
 namespace HumbleKeys
 {
@@ -28,12 +31,17 @@ namespace HumbleKeys
         private const string humblePurchaseUrlMask = @"https://www.humblebundle.com/downloads?key={0}";
         private const string steamGameUrlMask = @"https://store.steampowered.com/app/{0}";
         private const string steamSearchUrlMask = @"https://store.steampowered.com/search/?term={0}";
-        private const string REDEEMED_STR = "Key: Redeemed";
-        private const string UNREDEEMED_STR = "Key: Unredeemed";
-        private const string UNREDEEMABLE_STR = "Key: Unredeemable";
+        internal const string REDEEMED_STR = "Key: Redeemed";
+        internal const string UNREDEEMED_STR = "Key: Unredeemed";
+        internal const string UNREDEEMABLE_STR = "Key: Unredeemable";
+        internal const string EXPIRABLE_STR = "Key: Expirable";
+        internal const string CLAIMED_STR = "Key: Claimed";
+        internal const string UNCLAIMED_STR = "Key: Unclaimed";
 
-        private static readonly string[] PAST_TAGS =
-            { REDEEMED_STR, UNREDEEMED_STR, UNREDEEMABLE_STR, "Redeemed", "Unredeemed", "Unredeemable" };
+        internal static readonly string[] PAST_TAGS =
+            { REDEEMED_STR, UNREDEEMED_STR, UNREDEEMABLE_STR, EXPIRABLE_STR, CLAIMED_STR, UNCLAIMED_STR,
+              "Redeemed", "Unredeemed", "Unredeemable", "Expirable", "Claimed", "Unclaimed",
+              "Key: Expired", "Expired" };
 
         private const string HUMBLE_KEYS_SRC_NAME = "Humble Keys";
         private const string HUMBLE_KEYS_PLATFORM_NAME = "Humble Key: ";
@@ -68,6 +76,7 @@ namespace HumbleKeys
         
         #region === Accessors ================
 
+        private Guid STEAMPLUGINID { get; } = Guid.Parse("cb91dfc9-b977-43bf-8e70-55f46e410fab");
         private HumbleKeysLibrarySettings Settings { get; set; }
 
         public override Guid Id { get; } = Guid.Parse("62ac4052-e08a-4a1a-b70a-c2c0c3673bb9");
@@ -84,12 +93,43 @@ namespace HumbleKeys
             Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true, HasSettings = true };
             var settings = new HumbleKeysLibrarySettings(this);
             Settings = settings;
+            EnsureLocalizationLoaded();
         }
 
         public HumbleKeysLibrary(IPlayniteAPI api, HumbleKeysLibrarySettings settings = null) : base(api)
         {
             Properties = new LibraryPluginProperties { CanShutdownClient = false, HasCustomizedGameImport = true, HasSettings = (settings != null) };
             Settings = settings;
+            EnsureLocalizationLoaded();
+        }
+
+        private void EnsureLocalizationLoaded()
+        {
+            try
+            {
+                if (Application.Current != null && !Application.Current.Resources.Contains("LOCHumbleKeysCopyKeyMenuItem"))
+                {
+                    var pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
+                    var locPath = Path.Combine(pluginDir, "Localization", "en_US.xaml");
+                    if (File.Exists(locPath))
+                    {
+                        using (var stream = File.OpenRead(locPath))
+                        {
+                            var dict = (ResourceDictionary)System.Windows.Markup.XamlReader.Load(stream);
+                            Application.Current.Resources.MergedDictionaries.Add(dict);
+                            return;
+                        }
+                    }
+
+                    var packUri = new Uri("pack://application:,,,/HumbleKeysLibrary;component/Localization/en_US.xaml", UriKind.Absolute);
+                    var embeddedDict = new ResourceDictionary { Source = packUri };
+                    Application.Current.Resources.MergedDictionaries.Add(embeddedDict);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn($"Failed to load localization fallback: {ex.Message}");
+            }
         }
 
         public override ISettings GetSettings(bool firstRunSettings)
@@ -99,8 +139,6 @@ namespace HumbleKeys
 
         public override UserControl GetSettingsView(bool firstRunSettings)
         {
-            var playniteDescription = this.PlayniteApi.Resources.GetString("LOCHumbleKeysCopyKeyMenuItem");
-            var Description = ResourceProvider.GetString("LOCHumbleKeysCopyKeyMenuItem");
             return new HumbleKeysLibrarySettingsView();
         }
 
@@ -273,6 +311,8 @@ namespace HumbleKeys
             var redeemedTag = PlayniteApi.Database.Tags.Add(REDEEMED_STR);
             var unredeemedTag = PlayniteApi.Database.Tags.Add(UNREDEEMED_STR);
             var unredeemableTag = PlayniteApi.Database.Tags.Add(UNREDEEMABLE_STR);
+            var claimedTag = PlayniteApi.Database.Tags.Add(CLAIMED_STR);
+            var unclaimedTag = PlayniteApi.Database.Tags.Add(UNCLAIMED_STR);
 
             var tagMethod = (TagMethodology)Settings.TagWithBundleName;
             var unredeemableMethod = (UnredeemableMethodology)Settings.UnredeemableKeyHandling;
@@ -286,6 +326,40 @@ namespace HumbleKeys
                         platform.SpecificationId == NINTENDO_SWITCH);
 
             logger.Trace("ProcessOrders: DB begin update");
+            var steamLibraryPlugin = PlayniteApi.Addons.Plugins.FirstOrDefault(plugin => plugin.Id == STEAMPLUGINID);
+            var steamGameIds = steamLibraryPlugin != null
+                ? new HashSet<string>(
+                    PlayniteApi.Database.Games
+                        .Where(game => game.PluginId == steamLibraryPlugin.Id && !string.IsNullOrEmpty(game.GameId))
+                        .Select(game => game.GameId))
+                : new HashSet<string>();
+            var steamGameNames = steamLibraryPlugin != null
+                ? new HashSet<string>(
+                    PlayniteApi.Database.Games
+                        .Where(game => game.PluginId == steamLibraryPlugin.Id && !string.IsNullOrEmpty(game.Name))
+                        .Select(game => game.Name),
+                    StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            bool ExistsInSteam(ITpk tpk)
+            {
+                if (tpk == null || steamLibraryPlugin == null) return false;
+                var isNonSteam = !string.IsNullOrEmpty(tpk.key_type) && tpk.key_type != "steam" && string.IsNullOrEmpty(tpk.steam_app_id);
+                if (isNonSteam) return false;
+
+                if (!string.IsNullOrEmpty(tpk.steam_app_id))
+                {
+                    return steamGameIds.Contains(tpk.steam_app_id);
+                }
+
+                if (!string.IsNullOrEmpty(tpk.human_name))
+                {
+                    return steamGameNames.Contains(tpk.human_name);
+                }
+
+                return false;
+            }
+
             PlayniteApi.Database.BeginBufferUpdate();
             try
             {
@@ -328,11 +402,25 @@ namespace HumbleKeys
                             .ToList();
                         foreach (var game in libraryKeysNotInOrder)
                         {
+                            var matchingTpk = groupEntries.FirstOrDefault(tpk => GetGameId(tpk) == game.GameId);
+                            var inSteam = matchingTpk != null ? ExistsInSteam(matchingTpk) : (!string.IsNullOrEmpty(game.Name) && steamGameNames.Contains(game.Name));
+                            if (inSteam)
+                            {
+                                EnsureTagList(game);
+                                game.TagIds.Remove(unclaimedTag.Id);
+                                game.TagIds.Remove(unredeemedTag.Id);
+                                var changed = false;
+                                if (!game.TagIds.Contains(redeemedTag.Id)) { game.TagIds.Add(redeemedTag.Id); changed = true; }
+                                if (!game.TagIds.Contains(unredeemableTag.Id)) { game.TagIds.Add(unredeemableTag.Id); changed = true; }
+                                if (changed) PlayniteApi.Database.Games.Update(game);
+                                continue;
+                            }
+
                             switch (unredeemableMethod)
                             {
                                 case UnredeemableMethodology.Tag:
                                 {
-                                    game.TagIds.Remove(unredeemedTag.Id);
+                                    EnsureTagList(game);
                                     if (game.TagIds.Contains(unredeemableTag.Id)) continue;
 
                                     game.TagIds.Add(unredeemableTag.Id);
@@ -346,6 +434,7 @@ namespace HumbleKeys
                                                 PlayniteApi.MainView.SelectGame(game.Id);
                                             })
                                     );
+                                    PlayniteApi.Database.Games.Update(game);
                                     break;
                                 }
                                 case UnredeemableMethodology.Delete:
@@ -363,71 +452,152 @@ namespace HumbleKeys
 
                     foreach (var tpkd in groupEntries)
                     {
+                        var existsInSteam = ExistsInSteam(tpkd);
                         var gameId = GetGameId(tpkd);
 
-                        var alreadyImported =
+                        var gameEntry =
                             PlayniteApi.Database.Games.FirstOrDefault(game =>
                                 game.GameId == gameId && game.PluginId == Id);
 
-                        if (alreadyImported == null)
+                        var newGameEntry = false;
+                        if (gameEntry == null)
                         {
-                            if (!Settings.IgnoreRedeemedKeys || (Settings.IgnoreRedeemedKeys && !IsKeyPresent(tpkd)))
+                            if (!Settings.IgnoreRedeemedKeys || (Settings.IgnoreRedeemedKeys && !GetOrderRedemptionTags(tpkd, existsInSteam).Contains(REDEEMED_STR)))
                             {
-                                importedGames.Add(ImportNewGame(tpkd, humbleChoiceTag));
+                                gameEntry = ImportNewGame(tpkd, humbleChoiceTag, sourceOrder, existsInSteam);
+                                importedGames.Add(gameEntry);
+                                newGameEntry = true;
                             }
                         }
-                        else
+
+                        if (gameEntry != null)
                         {
-                            if (!Settings.IgnoreRedeemedKeys || (Settings.IgnoreRedeemedKeys && !IsKeyPresent(tpkd)))
+                            if (Settings.ExpirableNotification)
                             {
-                                var tagsUpdated = UpdateRedemptionStatus(alreadyImported, tpkd, humbleChoiceTag);
-                                var otherUpdated = UpdatePlatform(alreadyImported, tpkd);
-                                if (UpdateRedemptionStore(alreadyImported, tpkd)) otherUpdated = true;
+                                if (GetOrderRedemptionTags(tpkd, existsInSteam).Contains(EXPIRABLE_STR))
+                                {
+                                    PlayniteApi.Notifications.Add(
+                                        new NotificationMessage("HumbleKeysLibraryUpdate_expirable_" + gameEntry.Name,
+                                            $"{gameEntry.Name}: Has an expiration date, it will expire in {tpkd.num_days_until_expired} days",
+                                            NotificationType.Info,
+                                            () =>
+                                            {
+                                                if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen) return;
+                                                PlayniteApi.MainView.SelectGame(gameEntry.Id);
+                                            })
+                                    );
+                                    var expiryNote = tpkd.expiration_date != DateTime.MinValue
+                                        ? $"Key expires on: {tpkd.expiration_date.ToString(CultureInfo.CurrentCulture)}\n"
+                                        : $"Key expires on: {DateTime.Now.AddDays(tpkd.num_days_until_expired).ToString(CultureInfo.CurrentCulture)}\n";
+                                    if (string.IsNullOrEmpty(gameEntry.Notes))
+                                    {
+                                        gameEntry.Notes = expiryNote;
+                                        PlayniteApi.Database.Games.Update(gameEntry);
+                                    }
+                                    else if (!gameEntry.Notes.Contains(expiryNote))
+                                    {
+                                        gameEntry.Notes += expiryNote;
+                                        PlayniteApi.Database.Games.Update(gameEntry);
+                                    }
+                                }
+                            }
+
+                            if (Settings.UnclaimedGameNotification)
+                            {
+                                // key present but no matching game in steam library
+                                if (tpkd.steam_app_id != null)
+                                {
+                                    if (!existsInSteam && GetOrderRedemptionTagState(tpkd, existsInSteam) == CLAIMED_STR)
+                                    {
+                                        PlayniteApi.Notifications.Add(
+                                            new NotificationMessage("HumbleKeysLibraryUpdate_unclaimed_game_" + gameEntry.Id,
+                                                $"{gameEntry.Name} does not exist in Steam library",
+                                                NotificationType.Info,
+                                                () =>
+                                                {
+                                                    if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen)
+                                                        return;
+                                                    PlayniteApi.MainView.SelectGame(gameEntry.Id);
+                                                })
+                                        );
+                                    }
+                                }
+                            }
+
+                            if (tpkd.sold_out && !IsKeyPresent(tpkd))
+                            {
+                                PlayniteApi.Notifications.Add(
+                                    new NotificationMessage("HumbleKeysLibraryUpdate_sold_out_" + gameEntry.Name,
+                                        $"{gameEntry.Name} Key has sold out",
+                                        NotificationType.Info,
+                                        () =>
+                                        {
+                                            if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen) return;
+                                            PlayniteApi.MainView.SelectGame(gameEntry.Id);
+                                        })
+                                );
+                            }
+                        }
+
+                        if (newGameEntry)
+                        {
+                            continue;
+                        }
+
+                        if (gameEntry != null)
+                        {
+                            if (!Settings.IgnoreRedeemedKeys || (Settings.IgnoreRedeemedKeys && !GetOrderRedemptionTags(tpkd, existsInSteam).Contains(REDEEMED_STR)))
+                            {
+                                var tagsUpdated = UpdateRedemptionStatus(gameEntry, tpkd, humbleChoiceTag, existsInSteam);
+                                var otherUpdated = UpdatePlatform(gameEntry, tpkd);
+                                if (UpdateRedemptionStore(gameEntry, tpkd)) otherUpdated = true;
+                                if (UpdateMetaData(gameEntry, sourceOrder, tpkd, humbleChoiceTag)) otherUpdated = true;
 
                                 if (Settings.AddLinks)
                                 {
-                                    if (alreadyImported.Links == null)
+                                    if (gameEntry.Links == null)
                                     {
-                                        alreadyImported.Links = new ObservableCollection<Link>();
+                                        gameEntry.Links = new ObservableCollection<Link>();
                                     }
 
-                                    if (UpdateStoreLinks(alreadyImported.Links, tpkd, true)) otherUpdated = true;
+                                    if (UpdateStoreLinks(gameEntry.Links, tpkd, true)) otherUpdated = true;
                                 }
 
                                 if (!tagsUpdated && !otherUpdated)
                                 {
                                     logger.Trace(
-                                        $"ProcessOrders: No update needed for '{alreadyImported.Name}' with GameId = {alreadyImported.GameId}");
+                                        $"ProcessOrders: No update needed for '{gameEntry.Name}' with GameId = {gameEntry.GameId}");
                                     continue;
                                 }
 
-                                if (alreadyImported.TagIds != null &&
-                                    alreadyImported.TagIds.Contains(unredeemableTag.Id))
+                                if (gameEntry.TagIds != null &&
+                                    gameEntry.TagIds.Contains(unredeemableTag.Id) &&
+                                    !gameEntry.TagIds.Contains(redeemedTag.Id))
                                 {
                                     switch (unredeemableMethod)
                                     {
                                         case UnredeemableMethodology.Tag:
                                         {
-                                            PlayniteApi.Database.Games.Update(alreadyImported);
+                                            PlayniteApi.Database.Games.Update(gameEntry);
                                             PlayniteApi.Notifications.Add(
-                                                new NotificationMessage("HumbleKeysLibraryUpdate_" + alreadyImported.Id,
-                                                    $"{alreadyImported.Name} is no longer redeemable",
+                                                new NotificationMessage("HumbleKeysLibraryUpdate_" + gameEntry.Id,
+                                                    $"{gameEntry.Name} is no longer redeemable",
                                                     NotificationType.Info,
                                                     () =>
                                                     {
                                                         if (PlayniteApi.ApplicationInfo.Mode ==
                                                             ApplicationMode.Fullscreen)
                                                             return;
-                                                        PlayniteApi.MainView.SelectGame(alreadyImported.Id);
+                                                        PlayniteApi.MainView.SelectGame(gameEntry.Id);
                                                     })
                                             );
                                             break;
                                         }
                                         case UnredeemableMethodology.Delete:
                                         {
-                                            if (PlayniteApi.Database.Games.Remove(alreadyImported))
+                                            if (PlayniteApi.Database.Games.Remove(gameEntry))
                                             {
-                                                removedGames.Add(alreadyImported);
+                                                removedGames.Add(gameEntry);
                                             }
 
                                             break;
@@ -436,20 +606,20 @@ namespace HumbleKeys
                                 }
                                 else
                                 {
-                                    PlayniteApi.Database.Games.Update(alreadyImported);
+                                    PlayniteApi.Database.Games.Update(gameEntry);
                                     logger.Trace(
-                                        $"ProcessOrders: Updated '{alreadyImported.Name}' with GameId = {alreadyImported.GameId}");
+                                        $"ProcessOrders: Updated '{gameEntry.Name}' with GameId = {gameEntry.GameId}");
                                     if (tagsUpdated)
                                     {
                                         PlayniteApi.Notifications.Add(
-                                            new NotificationMessage("HumbleKeysLibraryUpdate_" + alreadyImported.Id,
-                                                $"Tags Updated for {alreadyImported.Name}: " +
-                                                GetOrderRedemptionTagState(tpkd), NotificationType.Info,
+                                            new NotificationMessage("HumbleKeysLibraryUpdate_" + gameEntry.Id,
+                                                $"Tags Updated for {gameEntry.Name}: " +
+                                                GetOrderRedemptionTagState(tpkd, existsInSteam), NotificationType.Info,
                                                 () =>
                                                 {
                                                     if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen)
                                                         return;
-                                                    PlayniteApi.MainView.SelectGame(alreadyImported.Id);
+                                                    PlayniteApi.MainView.SelectGame(gameEntry.Id);
                                                 })
                                         );
                                     }
@@ -458,9 +628,9 @@ namespace HumbleKeys
                             else
                             {
                                 // Remove Existing Game?
-                                PlayniteApi.Database.Games.Remove(alreadyImported);
+                                PlayniteApi.Database.Games.Remove(gameEntry);
                                 logger.Trace(
-                                    $"Removing game '{alreadyImported.Name}' with GameId = {alreadyImported.GameId} since Settings.IgnoreRedeemedKeys is: [{Settings.IgnoreRedeemedKeys}] and IsKeyPresent() is [{IsKeyPresent(tpkd)}]");
+                                    $"Removing game '{gameEntry.Name}' with GameId = {gameEntry.GameId} since Settings.IgnoreRedeemedKeys is: [{Settings.IgnoreRedeemedKeys}] and state is [{GetOrderRedemptionTagState(tpkd, existsInSteam)}]");
                             }
                         }
                     }
@@ -535,7 +705,7 @@ namespace HumbleKeys
             return true;
         }
 
-        Game ImportNewGame(ITpk tpkd, Tag groupTag = null)
+        Game ImportNewGame(ITpk tpkd, Tag groupTag = null, IOrder sourceOrder = null, bool existsInSteamLibrary = true)
         {
             var gameInfo = new GameMetadata()
             {
@@ -559,9 +729,17 @@ namespace HumbleKeys
 
             if (Settings.AddKeyStatus)
             {
-                // add tag reflecting redemption status
-                gameInfo.Tags = new HashSet<MetadataProperty>
-                    { new MetadataNameProperty(GetOrderRedemptionTagState(tpkd)) };
+                // add tag(s) reflecting redemption status
+                var tags = GetOrderRedemptionTags(tpkd, existsInSteamLibrary);
+                if (gameInfo.Tags == null)
+                {
+                    gameInfo.Tags = new HashSet<MetadataProperty>();
+                }
+
+                foreach (var tagName in tags)
+                {
+                    gameInfo.Tags.Add(new MetadataNameProperty(tagName));
+                }
             }
 
             if (Settings.AddLinks)
@@ -587,6 +765,7 @@ namespace HumbleKeys
 
             if (UpdatePlatform(game, tpkd)) gameChanged = true;
             if (UpdateRedemptionStore(game, tpkd)) gameChanged = true;
+            if (sourceOrder != null && UpdateMetaData(game, sourceOrder, tpkd, groupTag)) gameChanged = true;
 
             if (gameChanged)
             {
@@ -597,10 +776,32 @@ namespace HumbleKeys
             return game;
         }
 
+        internal static bool UpdateMetaData(Game alreadyImported, IOrder sourceOrder, ITpk tpkd = null,
+            Tag humbleChoiceTag = null)
+        {
+            if (alreadyImported == null || sourceOrder == null || sourceOrder.created == DateTime.MinValue)
+                return false;
+
+            var createdUtcDateTime = sourceOrder.created.ToUniversalTime();
+            if (alreadyImported.Added != null)
+            {
+                var addedUtcDateTime = alreadyImported.Added.Value.Kind != DateTimeKind.Utc
+                    ? alreadyImported.Added.Value.ToUniversalTime()
+                    : alreadyImported.Added.Value;
+                var timeDifference = addedUtcDateTime - createdUtcDateTime;
+                if (timeDifference.Days == 0 && timeDifference.Hours == 0 && timeDifference.Minutes == 0 &&
+                    timeDifference.Seconds == 0)
+                    return false;
+            }
+
+            alreadyImported.Added = createdUtcDateTime.ToLocalTime();
+            return true;
+        }
+
         // If a game is expired, add tag 'Key: Unredeemable'
         // If a game had been redeemed since last added to Playnite, remove the tag 'Key: Unredeemed' and add the tag 'Key: Redeemed'
         // returns whether tags were updated or not
-        bool UpdateRedemptionStatus(Game existingGame, ITpk tpkd, Tag groupTag = null)
+        bool UpdateRedemptionStatus(Game existingGame, ITpk tpkd, Tag groupTag = null, bool existsInSteamLibrary = true)
         {
             var recordChanged = false;
             if (existingGame == null)
@@ -626,29 +827,30 @@ namespace HumbleKeys
             if (!Settings.AddKeyStatus) return recordChanged;
 
             // process tags on existingGame only if there was a change in tag status
-            var existingRedemptionTagIds =
-                existingGame.Tags?.Where(t => PAST_TAGS.Contains(t.Name)).ToList().Select(tag => tag.Id) ??
-                Enumerable.Empty<Guid>();
+            var existingRedemptionTags =
+                existingGame.Tags?.Where(t => PAST_TAGS.Contains(t.Name)).ToList() ??
+                new List<Tag>();
+            var existingRedemptionTagIds = new HashSet<Guid>(existingRedemptionTags.Select(tag => tag.Id));
 
-            // This creates a new Tag in the Tag Database if it doesn't already exist for 'Tag: Redeemed'
-            var tagIds = existingRedemptionTagIds.ToList();
-            // no need to call BeginBufferUpdate() here because the only place this method is called already did that
-            var currentTagState = PlayniteApi.Database.Tags.Add(GetOrderRedemptionTagState(tpkd));
+            var expectedTagNames = GetOrderRedemptionTags(tpkd, existsInSteamLibrary);
+            var expectedTagIds = new HashSet<Guid>(expectedTagNames.Select(name => PlayniteApi.Database.Tags.Add(name).Id));
 
             // existingGame already tagged with correct tag state
-            if (tagIds.Contains(currentTagState.Id)) return recordChanged;
+            if (existingRedemptionTagIds.SetEquals(expectedTagIds)) return recordChanged;
 
-            if (existingGame.TagIds == null)
-            {
-                existingGame.TagIds = new List<Guid>();
-            }
-            else
-            {
-                // remove all tags related to key state
-                existingGame.TagIds.RemoveAll(tagId => tagIds.Contains(tagId));
-            }
+            EnsureTagList(existingGame);
 
-            existingGame.TagIds.Add(currentTagState.Id);
+            // remove all tags related to key state
+            existingGame.TagIds.RemoveAll(tagId => existingRedemptionTagIds.Contains(tagId));
+
+            // add all expected tags
+            foreach (var expectedTagId in expectedTagIds)
+            {
+                if (!existingGame.TagIds.Contains(expectedTagId))
+                {
+                    existingGame.TagIds.Add(expectedTagId);
+                }
+            }
 
             return true;
         }
@@ -788,10 +990,43 @@ namespace HumbleKeys
         private static bool IsKeyNull(ITpk t) => t?.redeemed_key_val == null;
         private static bool IsKeyPresent(ITpk t) => !IsKeyNull(t);
 
-        private static string GetOrderRedemptionTagState(ITpk t)
+        internal static List<string> GetOrderRedemptionTags(ITpk t, bool? existsInSteamLibrary = null)
         {
-            if (t.is_expired) return UNREDEEMABLE_STR;
-            return IsKeyPresent(t) ? REDEEMED_STR : UNREDEEMED_STR;
+            var isNonSteam = !string.IsNullOrEmpty(t.key_type) && t.key_type != "steam" && string.IsNullOrEmpty(t.steam_app_id);
+            var inSteam = isNonSteam ? IsKeyPresent(t) : (existsInSteamLibrary == true);
+
+            // 1. Determine Base State
+            string baseTag;
+            if (IsKeyPresent(t))
+            {
+                baseTag = inSteam ? REDEEMED_STR : UNREDEEMED_STR;
+            }
+            else
+            {
+                baseTag = t.is_virtual ? UNCLAIMED_STR : CLAIMED_STR;
+            }
+
+            var tags = new List<string> { baseTag };
+
+            // 2. Determine Lifecycle Modifier
+            var isPastExpiration = t.is_expired || (t.expiration_date != DateTime.MinValue && t.expiration_date < DateTime.Now);
+            var isExpirable = (t.num_days_until_expired > 0) || (t.expiration_date != DateTime.MinValue && !isPastExpiration);
+
+            if (isPastExpiration)
+            {
+                tags.Add(UNREDEEMABLE_STR);
+            }
+            else if (isExpirable)
+            {
+                tags.Add(EXPIRABLE_STR);
+            }
+
+            return tags;
+        }
+
+        internal static string GetOrderRedemptionTagState(ITpk t, bool? existsInSteamLibrary = null)
+        {
+            return string.Join(", ", GetOrderRedemptionTags(t, existsInSteamLibrary));
         }
 
         private static void EnsureTagList(Game game)
@@ -814,6 +1049,137 @@ namespace HumbleKeys
         private static void OnUpdateProgress(float  progress = 100f)
         {
             UpdateProgress?.Invoke(null, EventArgs.Empty);
+        }
+
+        public override IEnumerable<GameMenuItem> GetGameMenuItems(GetGameMenuItemsArgs args)
+        {
+            if (args.Games.Count != 1) yield break;
+            var game = args.Games[0];
+            if (game.PluginId != Id) yield break;
+
+            var claimedTag = PlayniteApi.Database.Tags.FirstOrDefault(t => t.Name == CLAIMED_STR);
+            var unclaimedTag = PlayniteApi.Database.Tags.FirstOrDefault(t => t.Name == UNCLAIMED_STR);
+            var redeemedTag = PlayniteApi.Database.Tags.FirstOrDefault(t => t.Name == REDEEMED_STR);
+            var unredeemedTag = PlayniteApi.Database.Tags.FirstOrDefault(t => t.Name == UNREDEEMED_STR);
+
+            if (game.TagIds != null && (
+                (claimedTag != null && game.TagIds.Contains(claimedTag.Id)) ||
+                (unclaimedTag != null && game.TagIds.Contains(unclaimedTag.Id))) &&
+                (redeemedTag == null || !game.TagIds.Contains(redeemedTag.Id))/* &&
+                (unredeemedTag == null || !game.TagIds.Contains(unredeemedTag.Id))*/)
+            {
+                yield break;
+            }
+
+            var menuDesc = ResourceProvider.GetString("LOCHumbleKeysCopyKeyMenuItem");
+            if (string.IsNullOrEmpty(menuDesc) || menuDesc == "LOCHumbleKeysCopyKeyMenuItem" || menuDesc.StartsWith("<LOC"))
+            {
+                menuDesc = "Copy CD Key to Clipboard";
+            }
+
+            yield return new GameMenuItem
+            {
+                Description = menuDesc,
+                MenuSection = "Humble Keys",
+                Action = _ => CopyKeyToClipboard(game)
+            };
+        }
+
+        private void CopyKeyToClipboard(Game game)
+        {
+            try
+            {
+                var notInCacheMsg = ResourceProvider.GetString("LOCHumbleKeysCopyKeyNotInCache");
+                if (string.IsNullOrEmpty(notInCacheMsg) || notInCacheMsg == "LOCHumbleKeysCopyKeyNotInCache" || notInCacheMsg.StartsWith("<LOC"))
+                {
+                    notInCacheMsg = "CD key not found in local cache. Re-sync your library to populate the cache.";
+                }
+
+                using var sqlRepo = new HumbleOrderSqlRepository(Settings, logger);
+                var orderKeys = sqlRepo.GetLibraryKeys().ToList();
+                var matchingKey = orderKeys.FirstOrDefault(k => game.GameId.EndsWith("_" + k));
+
+                if (matchingKey == null)
+                {
+                    PlayniteApi.Dialogs.ShowMessage(notInCacheMsg, "Humble Keys");
+                    return;
+                }
+
+                var machineName = game.GameId.Substring(0, game.GameId.Length - matchingKey.Length - 1);
+                var order = sqlRepo.GetOrder(matchingKey);
+                var tpk = order?.tpkd_dict?.all_tpks?.FirstOrDefault(t => t.machine_name == machineName);
+
+                if (tpk?.redeemed_key_val == null)
+                {
+                    PlayniteApi.Dialogs.ShowMessage(notInCacheMsg, "Humble Keys");
+                    return;
+                }
+
+                var key = tpk.redeemed_key_val is Newtonsoft.Json.Linq.JValue jVal
+                    ? jVal.Value?.ToString()
+                    : tpk.redeemed_key_val.ToString();
+
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    PlayniteApi.Dialogs.ShowMessage(notInCacheMsg, "Humble Keys");
+                    return;
+                }
+
+                PlayniteApi.MainView.UIDispatcher.Invoke(() =>
+                {
+                    const int maxRetries = 10;
+                    const int delayMs = 100;
+                    for (int i = 0; i < maxRetries; i++)
+                    {
+                        try
+                        {
+                            // Passing false prevents WPF from calling OleFlushClipboard(), which triggers
+                            // CLIPBRD_E_CANT_OPEN when Windows Clipboard History (Win+V) or clipboard viewers
+                            // lock the clipboard immediately upon receiving WM_CLIPBOARDUPDATE.
+                            System.Windows.Clipboard.SetDataObject(key, false);
+                            return;
+                        }
+                        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException || ex is System.Runtime.InteropServices.ExternalException)
+                        {
+                            // Verify if the key was already placed onto the clipboard before the exception occurred
+                            try
+                            {
+                                if (System.Windows.Clipboard.ContainsText() && System.Windows.Clipboard.GetText() == key)
+                                {
+                                    return;
+                                }
+                            }
+                            catch
+                            {
+                                // Clipboard may still be held open by the external viewer
+                            }
+
+                            if (i == maxRetries - 1)
+                            {
+                                // One final check after a short delay before propagating
+                                try
+                                {
+                                    System.Threading.Thread.Sleep(delayMs);
+                                    if (System.Windows.Clipboard.ContainsText() && System.Windows.Clipboard.GetText() == key)
+                                    {
+                                        return;
+                                    }
+                                }
+                                catch
+                                {
+                                }
+                                throw;
+                            }
+                            System.Threading.Thread.Sleep(delayMs);
+                        }
+                    }
+                });
+            }
+            catch (Exception e)
+            {
+                logger.Error(e, "Failed to copy CD key to clipboard");
+                PlayniteApi.Dialogs.ShowErrorMessage(e.Message, "Humble Keys");
+            }
         }
 
         public override void Dispose()

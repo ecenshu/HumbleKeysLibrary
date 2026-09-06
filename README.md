@@ -18,14 +18,22 @@ You can install it via Playnite's built-in add-on browser or:
 * `Add Redemption Store to field` - Add the store the key is for (e.g. Steam) to this field (**IMPORTANT:** `Platform` field is no longer used by default, but now `Source` is to help some metadata plugins properly match games).
 * `Import Choice Games` - When checked, purchases that are detected as Humble Choice Bundles will have the bundle's individual games added.
 * `Create Tags for Bundle Names` - When an entry not `None` is selected, it will create a tag in the format of `Bundle: [Bundle Name]`.
-* `Unredeemable key handling` - Unredeemable virtual orders (either expired and cannot be redeemed or part of a Bundle where all choices have been made) can be tagged as `Key: Unredeemable` or not added to the library. For existing games, if `Tag` is selected a new tag will replace the existing `Key: Unredeemed` tag with `Key: Unredeemable`, if `Delete` is selected the game will be deleted from the library if it cannot be redeemed.
+* `Unredeemable key handling` - Unredeemable virtual orders (either expired and cannot be redeemed or part of a Bundle where all choices have been made) can be tagged as `Key: Unredeemable` or deleted from the library. If the game already exists in your Steam library, it will instead receive `Key: Redeemed` alongside `Key: Unredeemable` and will not be deleted.
+* `Notify about expiring keys` - When checked, notifications will be made for any key that has an expiry date and is not yet redeemed in Steam. It will add a note on the game entry of the exact date and time the key will expire.
+* `Notify about claimed keys that doesn't exist in the Steam Library` - When checked, during the library scan, will try and cross reference the revealed key with the Steam Library Plugin. If there is no match it will create a notification.
 * `Enable Cache` - When checked, HumbleKeysLibrary will create JSON files for data retrieved from the Humble API in the ExtensionsData directory. If a Cache file exists, the API will not be queried to prevent spamming Humble. This applies to Purchases, Memberships (Humble Monthly) and Orders.
 
 ## Details
 ### Tags
-* `Key: Redeemed` - this tag is attached to entries that have been redeemed. Corresponds to Humble API `tpkd_dict.all_tpks[n].redeemed_key_value`.
-* `Key: Unredeemed` - this tag is attached to entries that have not been redeemed. Corresponds to Humble API `tpkd_dict.all_tpks[n].redeemed_key_value`.
-* `Key: Unredeemable` - this tag is attached to entries that cannot be redeemed (either expired or part of a Bundle where all choices have been made).
+Tags are composed of a **Base State** and an optional **Lifecycle Modifier**:
+#### Base States
+* `Key: Redeemed` - key is revealed on Humble and the game exists in the Steam library (or a non-Steam key with key revealed).
+* `Key: Unredeemed` - key is revealed on Humble, but the game does not exist in the Steam library.
+* `Key: Claimed` - game is purchased or claimed into your Humble account (`is_virtual == false`), but the key has not been revealed yet.
+* `Key: Unclaimed` - game is an unchosen option in a Choice bundle (`is_virtual == true`), no key revealed yet.
+#### Lifecycle Modifiers (in conjunction with Base States)
+* `Key: Expirable` - attached alongside the base state when the key has an expiration date and has not yet expired.
+* `Key: Unredeemable` - attached alongside the base state when the key is past its expiration date or Choice choices have been exhausted.
 * `Bundle: [Bundle Name]` - will be created per Bundle of keys if the option to create grouping tags is enabled (when `product.category=='subscriptioncontent' and product.choice_url has a value`).
 ### Key Types
 Humble API lists key types in `tpkd_dict.all_tpks[n].key_type`, which corresponds to the services on which the key can be redeemed. Supported keys include:
