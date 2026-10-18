@@ -6,6 +6,7 @@
   name: Generate release artifacts
   
   on:
+    workflow_dispatch:
     push:
       branches: [ "releases/**", "beta/**" ]
       tags:
